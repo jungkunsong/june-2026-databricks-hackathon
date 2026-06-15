@@ -1,201 +1,122 @@
 import { useState, useEffect, useCallback } from 'react';
-import { useParams, useNavigate } from 'react-router';
-import { Loader2, ArrowLeft, CheckCircle2, XCircle, Clock, ChevronDown, ChevronUp, ExternalLink } from 'lucide-react';
-import { clustersApi, tasksApi, decisionsApi, messagesApi, type FacilityRecord, type TaskWithThread } from '../lib/api';
+import { useParams, useNavigate, Link } from 'react-router';
+import {
+  ArrowLeft,
+  Bot,
+  Building2,
+  Loader2,
+  MapPin,
+  Phone,
+  Stethoscope,
+  Wrench,
+  ChevronDown,
+  ChevronUp,
+  Sparkles,
+} from 'lucide-react';
+import { clustersApi, tasksApi, type FacilityRecord } from '../lib/api';
 import { AgentChat } from './agents/AgentChat';
 
-// ── Field comparison helpers ───────────────────────────────────────────────────
+// ── helpers ──────────────────────────────────────────────────────────────────
 
-function parseJsonArray(val: string | null | undefined): string[] {
-  if (!val) return [];
-  try { return JSON.parse(val) as string[]; } catch { return [val]; }
-}
-
-function fieldDiffers(records: FacilityRecord[], field: keyof FacilityRecord): boolean {
-  const vals = records.map((r) => r[field]);
-  return new Set(vals.map((v) => String(v ?? ''))).size > 1;
-}
-
-// ── Record card ────────────────────────────────────────────────────────────────
-
-function RecordCard({ record, index, differs }: { record: FacilityRecord; index: number; differs: Set<keyof FacilityRecord> }) {
-  const [expanded, setExpanded] = useState(false);
-
-  const fields: { label: string; key: keyof FacilityRecord; array?: boolean }[] = [
-    { label: 'Name', key: 'name' },
-    { label: 'Type', key: 'facilityTypeId' },
-    { label: 'Org Type', key: 'organization_type' },
-    { label: 'Address', key: 'address_line1' },
-    { label: 'City', key: 'address_city' },
-    { label: 'State', key: 'address_stateOrRegion' },
-    { label: 'Country', key: 'address_country' },
-    { label: 'ZIP', key: 'address_zipOrPostcode' },
-    { label: 'Phone', key: 'phone_numbers' },
-    { label: 'Email', key: 'email' },
-    { label: 'Website', key: 'websites' },
-    { label: 'Doctors', key: 'numberDoctors' },
-    { label: 'Capacity', key: 'capacity' },
-    { label: 'Est.', key: 'yearEstablished' },
-    { label: 'Lat', key: 'latitude' },
-    { label: 'Lng', key: 'longitude' },
-    { label: 'Source', key: 'source_types' },
-  ];
-
-  const skillFields: { label: string; key: keyof FacilityRecord }[] = [
-    { label: 'Specialties', key: 'specialties' },
-    { label: 'Procedures', key: 'procedure' },
-    { label: 'Equipment', key: 'equipment' },
-    { label: 'Capabilities', key: 'capability' },
-  ];
-
+function FieldRow({ label, value }: { label: string; value: string | number | null | undefined }) {
+  if (value === null || value === undefined || value === '') return null;
   return (
-    <div className="rounded-lg border border-border bg-white shadow-sm overflow-hidden">
-      <div className="flex items-center justify-between bg-[#EEEDE9] px-4 py-2">
-        <span className="text-xs font-semibold text-[#0B2026]">Record {index + 1}</span>
-        <span className="text-xs text-muted-foreground font-mono">{record.unique_id?.slice(0, 12)}…</span>
-      </div>
-      <div className="divide-y divide-border">
-        {fields.map(({ label, key }) => {
-          const val = record[key];
-          const isDiff = differs.has(key);
-          return (
-            <div key={String(key)} className={`flex gap-2 px-4 py-1.5 text-xs ${isDiff ? 'bg-amber-50' : ''}`}>
-              <span className="w-20 flex-shrink-0 text-muted-foreground">{label}</span>
-              <span className={`flex-1 break-all ${isDiff ? 'font-medium text-amber-800' : 'text-foreground'}`}>
-                {val != null && val !== '' ? String(val) : <span className="text-muted-foreground/50">—</span>}
-                {isDiff && <span className="ml-1 text-amber-500">⚠</span>}
-              </span>
-            </div>
-          );
-        })}
-      </div>
-
-      {/* Skills section */}
-      <button
-        onClick={() => setExpanded((e) => !e)}
-        className="flex w-full items-center justify-between bg-[#EEEDE9]/60 px-4 py-2 text-xs font-medium text-[#0B2026] hover:bg-[#EEEDE9]"
-      >
-        Skills & Specialties
-        {expanded ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
-      </button>
-      {expanded && (
-        <div className="divide-y divide-border">
-          {skillFields.map(({ label, key }) => {
-            const items = parseJsonArray(record[key] as string);
-            const isDiff = differs.has(key);
-            return (
-              <div key={String(key)} className={`px-4 py-2 text-xs ${isDiff ? 'bg-amber-50' : ''}`}>
-                <div className="mb-1 text-muted-foreground">
-                  {label} {isDiff && <span className="text-amber-500">⚠</span>}
-                </div>
-                {items.length > 0 ? (
-                  <div className="flex flex-wrap gap-1">
-                    {items.map((item, i) => (
-                      <span key={i} className="rounded-full bg-[#EEEDE9] px-2 py-0.5 text-[10px] text-[#0B2026]">
-                        {item}
-                      </span>
-                    ))}
-                  </div>
-                ) : (
-                  <span className="text-muted-foreground/50">—</span>
-                )}
-              </div>
-            );
-          })}
-        </div>
-      )}
-
-      {/* Source URLs */}
-      {record.source_urls && (
-        <div className="px-4 py-2 text-xs">
-          <span className="text-muted-foreground">Sources: </span>
-          {parseJsonArray(record.source_urls).slice(0, 2).map((url, i) => (
-            <a key={i} href={url} target="_blank" rel="noopener noreferrer"
-              className="mr-2 inline-flex items-center gap-0.5 text-[#FF3621] underline underline-offset-2">
-              Link {i + 1} <ExternalLink className="h-2.5 w-2.5" />
-            </a>
-          ))}
-        </div>
-      )}
+    <div className="grid grid-cols-[140px_1fr] gap-2 py-1.5 border-b border-border/50 last:border-0">
+      <span className="text-xs font-medium text-muted-foreground truncate">{label}</span>
+      <span className="text-xs text-[#0B2026] break-words">{String(value)}</span>
     </div>
   );
 }
 
-// ── Decision panel ─────────────────────────────────────────────────────────────
+function Section({ title, icon, children, defaultOpen = true }: {
+  title: string;
+  icon: React.ReactNode;
+  children: React.ReactNode;
+  defaultOpen?: boolean;
+}) {
+  const [open, setOpen] = useState(defaultOpen);
+  return (
+    <div className="rounded-lg border border-border bg-white overflow-hidden">
+      <button
+        onClick={() => setOpen((o) => !o)}
+        className="flex w-full items-center justify-between px-4 py-2.5 text-left hover:bg-muted/40 transition-colors"
+      >
+        <span className="flex items-center gap-2 text-sm font-semibold text-[#0B2026]">
+          {icon}
+          {title}
+        </span>
+        {open ? <ChevronUp className="h-3.5 w-3.5 text-muted-foreground" /> : <ChevronDown className="h-3.5 w-3.5 text-muted-foreground" />}
+      </button>
+      {open && <div className="px-4 pb-3 pt-1">{children}</div>}
+    </div>
+  );
+}
 
-const OUTCOMES = [
-  { value: 'merged', label: 'Merge', color: 'bg-green-600 hover:bg-green-700', icon: CheckCircle2 },
-  { value: 'confirmed_distinct', label: 'Keep Separate', color: 'bg-blue-600 hover:bg-blue-700', icon: XCircle },
-  { value: 'confirmed_duplicate', label: 'Exact Duplicate', color: 'bg-purple-600 hover:bg-purple-700', icon: CheckCircle2 },
-  { value: 'deferred', label: 'Defer', color: 'bg-gray-500 hover:bg-gray-600', icon: Clock },
-];
+// Build a concise initial prompt for the supervisor from the cluster records.
+// Includes the row_id so the supervisor can pass it directly to evidence-fetcher.
+function buildInitialMessage(clusterId: string, records: FacilityRecord[]): string {
+  const primary = records[0];
+  const rowId = primary?.row_id;
+  const names = [...new Set(records.map((r) => r.name).filter(Boolean))].join(', ');
+  return (
+    `Please begin AI Agent Verification for facility cluster "${clusterId}".\n\n` +
+    `Primary record row_id: ${rowId}. ` +
+    `This cluster contains ${records.length} record(s): ${names}.\n\n` +
+    `Start by calling evidence-fetcher with row_id=${rowId} to retrieve the full record. ` +
+    `Then dispatch all appropriate sub-agents based on the populated fields. ` +
+    `Interrogate their findings and present only your approved results with reasoning. ` +
+    `Mark any field you cannot validate as "unable to validate" with an explanation.`
+  );
+}
 
-// ── Main page ──────────────────────────────────────────────────────────────────
+// ── main component ────────────────────────────────────────────────────────────
 
 export function ResolvePage() {
-  const { taskId } = useParams<{ taskId: string }>();
+  const { clusterId } = useParams<{ clusterId: string }>();
   const navigate = useNavigate();
-  const [thread, setThread] = useState<TaskWithThread | null>(null);
+
   const [records, setRecords] = useState<FacilityRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [deciding, setDeciding] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<'evidence' | 'chat'>('evidence');
-  const isMobile = window.innerWidth < 768;
+
+  // Whether the user has clicked "AI Agent Verification"
+  const [agentStarted, setAgentStarted] = useState(false);
+  const [starting, setStarting] = useState(false);
+
+  const [initialMessage, setInitialMessage] = useState<string>('');
 
   const load = useCallback(async () => {
-    if (!taskId) return;
+    if (!clusterId) return;
     setLoading(true);
+    setError(null);
     try {
-      const t = await tasksApi.get(Number(taskId));
-      setThread(t);
-      const recs = await clustersApi.records(t.task.cluster_id);
+      const recs = await clustersApi.records(clusterId);
       setRecords(recs);
+      setInitialMessage(buildInitialMessage(clusterId, recs));
     } catch (e) {
       setError(String(e));
     } finally {
       setLoading(false);
     }
-  }, [taskId]);
+  }, [clusterId]);
 
   useEffect(() => { void load(); }, [load]);
 
-  // Compute which fields differ across records
-  const differingFields = new Set<keyof FacilityRecord>();
-  if (records.length > 1) {
-    const keys: (keyof FacilityRecord)[] = [
-      'name', 'facilityTypeId', 'organization_type', 'address_line1',
-      'address_city', 'address_stateOrRegion', 'address_country',
-      'address_zipOrPostcode', 'phone_numbers', 'email', 'websites',
-      'numberDoctors', 'capacity', 'yearEstablished', 'latitude', 'longitude',
-      'source_types', 'specialties', 'procedure', 'equipment', 'capability',
-    ];
-    for (const k of keys) {
-      if (fieldDiffers(records, k)) differingFields.add(k);
-    }
-  }
-
-  async function submitDecision(outcome: string) {
-    if (!thread || !taskId) return;
-    setDeciding(outcome);
+  async function handleStartVerification() {
+    if (!clusterId) return;
+    setStarting(true);
     try {
-      await decisionsApi.create(Number(taskId), {
-        cluster_id: thread.task.cluster_id,
-        outcome,
-        decided_by: 'human',
-      });
-      // Save a message recording the decision
-      await messagesApi.create(Number(taskId), {
-        role: 'user',
-        content: `Decision submitted: **${outcome.replace(/_/g, ' ')}**`,
-      });
-      navigate('/');
+      // Create (or find existing) task — server sets in_progress on upsert
+      await tasksApi.create(clusterId);
+      setAgentStarted(true);
     } catch (e) {
       setError(String(e));
     } finally {
-      setDeciding(null);
+      setStarting(false);
     }
   }
+
+  // ── loading / error states ──────────────────────────────────────────────────
 
   if (loading) {
     return (
@@ -205,158 +126,167 @@ export function ResolvePage() {
     );
   }
 
-  if (error || !thread) {
+  if (error || !clusterId) {
     return (
-      <div className="rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
-        {error ?? 'Task not found'}
+      <div className="space-y-4">
+        <Link to="/" className="flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground">
+          <ArrowLeft className="h-3.5 w-3.5" /> Back to queue
+        </Link>
+        <div className="rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+          {error ?? 'Cluster not found.'}
+        </div>
       </div>
     );
   }
 
-  const { task, latest_decision } = thread;
+  const representativeName = records[0]?.name ?? clusterId;
 
-  // Build context string for the agent
-  const agentContext = `
-You are resolving cluster: ${task.cluster_id}
-Representative name: ${records[0]?.name ?? 'Unknown'}
-Records in cluster: ${records.length}
-Location: ${[records[0]?.address_city, records[0]?.address_stateOrRegion, records[0]?.address_country].filter(Boolean).join(', ')}
-Differing fields: ${[...differingFields].join(', ') || 'none'}
-
-Raw records (JSON):
-${JSON.stringify(records.map((r) => ({
-  unique_id: r.unique_id,
-  name: r.name,
-  organization_type: r.organization_type,
-  facilityTypeId: r.facilityTypeId,
-  address: `${r.address_line1 ?? ''}, ${r.address_city ?? ''}, ${r.address_stateOrRegion ?? ''} ${r.address_zipOrPostcode ?? ''}, ${r.address_country ?? ''}`.trim(),
-  lat: r.latitude,
-  lng: r.longitude,
-  phone: r.phone_numbers,
-  email: r.email,
-  websites: r.websites,
-  source_types: r.source_types,
-  specialties: parseJsonArray(r.specialties),
-  procedures: parseJsonArray(r.procedure),
-  equipment: parseJsonArray(r.equipment),
-  capabilities: parseJsonArray(r.capability),
-  numberDoctors: r.numberDoctors,
-  capacity: r.capacity,
-  yearEstablished: r.yearEstablished,
-})), null, 2)}
-  `.trim();
+  // ── render ──────────────────────────────────────────────────────────────────
 
   return (
-    <div className="space-y-4">
-      {/* Back + header */}
-      <div className="flex items-start gap-3">
-        <button
-          onClick={() => navigate('/')}
-          className="mt-0.5 rounded-md p-1.5 hover:bg-muted"
-        >
-          <ArrowLeft className="h-4 w-4 text-muted-foreground" />
-        </button>
-        <div className="flex-1">
-          <h1 className="text-xl font-bold text-[#0B2026]">
-            {records[0]?.name ?? task.cluster_id}
-          </h1>
-          <p className="text-xs text-muted-foreground">
-            Cluster {task.cluster_id.slice(0, 16)}… · {records.length} records ·{' '}
-            {[records[0]?.address_city, records[0]?.address_country].filter(Boolean).join(', ')}
-          </p>
+    <div className="flex flex-col gap-4 h-[calc(100vh-7rem)]">
+
+      {/* Breadcrumb + header */}
+      <div className="flex items-center justify-between flex-shrink-0">
+        <div className="flex items-center gap-3">
+          <button
+            onClick={() => navigate('/')}
+            className="flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground"
+          >
+            <ArrowLeft className="h-3.5 w-3.5" /> Queue
+          </button>
+          <span className="text-muted-foreground">/</span>
+          <span className="text-sm font-medium text-[#0B2026] truncate max-w-xs">{representativeName}</span>
         </div>
-        {latest_decision && (
-          <span className="rounded-full bg-green-100 px-3 py-1 text-xs font-medium text-green-800">
-            {latest_decision.outcome.replace(/_/g, ' ')}
-          </span>
-        )}
+        <span className={`rounded-full px-2.5 py-0.5 text-xs font-medium ${
+          agentStarted ? 'bg-blue-100 text-blue-800' : 'bg-yellow-100 text-yellow-800'
+        }`}>
+          {agentStarted ? 'in progress' : 'pending'}
+        </span>
       </div>
 
-      {/* Mobile tab switcher */}
-      {isMobile && (
-        <div className="flex rounded-lg border border-border bg-white p-1">
-          {(['evidence', 'chat'] as const).map((tab) => (
-            <button
-              key={tab}
-              onClick={() => setActiveTab(tab)}
-              className={`flex-1 rounded-md py-1.5 text-xs font-medium transition-colors ${
-                activeTab === tab ? 'bg-[#0B2026] text-white' : 'text-muted-foreground hover:bg-muted'
-              }`}
-            >
-              {tab === 'evidence' ? 'Evidence' : 'AI Chat'}
-            </button>
+      {/* Two-column workspace */}
+      <div className="grid grid-cols-2 gap-4 flex-1 min-h-0">
+
+        {/* ── LEFT: Raw record(s) ── */}
+        <div className="flex flex-col gap-3 overflow-y-auto pr-1">
+          <h2 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground flex-shrink-0">
+            Raw Records ({records.length})
+          </h2>
+
+          {records.length === 0 && (
+            <div className="rounded-md border border-dashed border-border bg-white py-10 text-center text-sm text-muted-foreground">
+              No records found for this cluster.
+            </div>
+          )}
+
+          {records.map((rec, i) => (
+            <div key={rec.unique_id ?? i} className="space-y-2">
+              {records.length > 1 && (
+                <p className="text-xs font-medium text-muted-foreground px-1">Record {i + 1} of {records.length}</p>
+              )}
+
+              <Section title="Identity" icon={<Building2 className="h-3.5 w-3.5" />}>
+                <FieldRow label="Name" value={rec.name} />
+                <FieldRow label="Org type" value={rec.organization_type} />
+                <FieldRow label="Facility type" value={rec.facilityTypeId} />
+                <FieldRow label="Year established" value={rec.yearEstablished} />
+                <FieldRow label="Capacity" value={rec.capacity} />
+                <FieldRow label="Doctors" value={rec.numberDoctors} />
+                <FieldRow label="Accepts volunteers" value={rec.acceptsVolunteers} />
+                <FieldRow label="Description" value={rec.description} />
+              </Section>
+
+              <Section title="Location" icon={<MapPin className="h-3.5 w-3.5" />}>
+                <FieldRow label="Address" value={rec.address_line1} />
+                <FieldRow label="City" value={rec.address_city} />
+                <FieldRow label="State / Region" value={rec.address_stateOrRegion} />
+                <FieldRow label="Postcode" value={rec.address_zipOrPostcode} />
+                <FieldRow label="Country" value={rec.address_country} />
+                <FieldRow label="Latitude" value={rec.latitude} />
+                <FieldRow label="Longitude" value={rec.longitude} />
+              </Section>
+
+              <Section title="Contact" icon={<Phone className="h-3.5 w-3.5" />}>
+                <FieldRow label="Phone" value={rec.phone_numbers} />
+                <FieldRow label="Email" value={rec.email} />
+                <FieldRow label="Website" value={rec.websites} />
+              </Section>
+
+              <Section title="Clinical" icon={<Stethoscope className="h-3.5 w-3.5" />} defaultOpen={false}>
+                <FieldRow label="Specialties" value={rec.specialties} />
+                <FieldRow label="Procedures" value={rec.procedure} />
+                <FieldRow label="Equipment" value={rec.equipment} />
+                <FieldRow label="Capability" value={rec.capability} />
+              </Section>
+
+              <Section title="Sources" icon={<Wrench className="h-3.5 w-3.5" />} defaultOpen={false}>
+                <FieldRow label="Source types" value={rec.source_types} />
+                <FieldRow label="Source URLs" value={rec.source_urls} />
+                <FieldRow label="Unique ID" value={rec.unique_id} />
+                <FieldRow label="Cluster ID" value={rec.cluster_id} />
+              </Section>
+            </div>
           ))}
         </div>
-      )}
 
-      <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-        {/* Evidence panel */}
-        {(!isMobile || activeTab === 'evidence') && (
-          <div className="space-y-3">
-            <div className="flex items-center justify-between">
-              <h2 className="text-sm font-semibold text-[#0B2026]">
-                Evidence ({records.length} records)
-              </h2>
-              {differingFields.size > 0 && (
-                <span className="text-xs text-amber-600">
-                  ⚠ {differingFields.size} differing field{differingFields.size > 1 ? 's' : ''}
-                </span>
-              )}
-            </div>
-            <div className="space-y-3 max-h-[calc(100vh-320px)] overflow-y-auto pr-1">
-              {records.map((rec, i) => (
-                <RecordCard key={rec.unique_id} record={rec} index={i} differs={differingFields} />
-              ))}
-            </div>
+        {/* ── RIGHT: Agent panel ── */}
+        <div className="flex flex-col rounded-lg border border-border bg-white overflow-hidden">
+
+          {/* Panel header */}
+          <div className="flex items-center justify-between border-b border-border px-4 py-2.5 flex-shrink-0">
+            <span className="flex items-center gap-2 text-sm font-semibold text-[#0B2026]">
+              <Bot className="h-4 w-4" />
+              Supervisor Agent
+            </span>
+            {agentStarted && (
+              <span className="flex items-center gap-1.5 text-xs text-blue-600 font-medium">
+                <Loader2 className="h-3 w-3 animate-spin" />
+                Verifying…
+              </span>
+            )}
           </div>
-        )}
 
-        {/* Chat + decision panel */}
-        {(!isMobile || activeTab === 'chat') && (
-          <div className="flex flex-col gap-3">
-            {/* Supervisor chat */}
-            <div className="rounded-lg border border-border bg-white shadow-sm overflow-hidden" style={{ height: 'calc(100vh - 380px)', minHeight: '400px' }}>
-              <div className="border-b border-border bg-[#0B2026] px-4 py-2">
-                <span className="text-xs font-semibold text-white">Supervisor Agent</span>
-                <p className="text-[10px] text-white/60">AI-assisted resolution · Human in the loop</p>
+          {/* Idle state — shown until user clicks the button */}
+          {!agentStarted ? (
+            <div className="flex flex-1 flex-col items-center justify-center gap-5 p-8 text-center">
+              <div className="flex h-14 w-14 items-center justify-center rounded-full bg-[#EEEDE9]">
+                <Sparkles className="h-7 w-7 text-[#0B2026]" />
               </div>
-              <div className="h-[calc(100%-52px)]">
-                <AgentChat
-                  agentName="supervisor"
-                  initialMessage={`I'm ready to help resolve this cluster. Here is the full context:\n\n${agentContext}\n\nPlease analyze these records and provide your initial assessment.`}
-                  placeholder="Ask the supervisor agent, provide context, or confirm a decision…"
-                />
-              </div>
-            </div>
-
-            {/* Decision buttons */}
-            <div className="rounded-lg border border-border bg-white p-4 shadow-sm">
-              <h3 className="mb-3 text-xs font-semibold text-[#0B2026]">Submit Decision</h3>
-              <div className="grid grid-cols-2 gap-2">
-                {OUTCOMES.map(({ value, label, color, icon: Icon }) => (
-                  <button
-                    key={value}
-                    onClick={() => void submitDecision(value)}
-                    disabled={deciding !== null || task.status === 'resolved'}
-                    className={`flex items-center justify-center gap-1.5 rounded-md px-3 py-2 text-xs font-medium text-white transition-colors ${color} disabled:opacity-50`}
-                  >
-                    {deciding === value ? (
-                      <Loader2 className="h-3 w-3 animate-spin" />
-                    ) : (
-                      <Icon className="h-3 w-3" />
-                    )}
-                    {label}
-                  </button>
-                ))}
-              </div>
-              {task.status === 'resolved' && latest_decision && (
-                <p className="mt-2 text-center text-xs text-green-600">
-                  Resolved as: <strong>{latest_decision.outcome.replace(/_/g, ' ')}</strong>
+              <div className="space-y-1.5">
+                <p className="text-sm font-semibold text-[#0B2026]">Ready to verify</p>
+                <p className="text-xs text-muted-foreground max-w-xs">
+                  The Supervisor Agent will dispatch sub-agents to verify contact data,
+                  location, and clinical fields — then present its findings with reasoning.
                 </p>
-              )}
+              </div>
+              <button
+                onClick={() => void handleStartVerification()}
+                disabled={starting}
+                className="flex items-center gap-2 rounded-md bg-[#FF3621] px-5 py-2.5 text-sm font-semibold text-white hover:bg-[#e02e1a] disabled:opacity-60 transition-colors"
+              >
+                {starting ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <Sparkles className="h-4 w-4" />
+                )}
+                AI Agent Verification
+              </button>
+              <p className="text-[11px] text-muted-foreground/60">
+                Sub-agent activity is internal. You will only see Supervisor-approved findings.
+              </p>
             </div>
-          </div>
-        )}
+          ) : (
+            /* Active state — AgentChat takes over */
+            <div className="flex-1 min-h-0">
+              <AgentChat
+                initialMessage={initialMessage}
+                started={agentStarted}
+                placeholder="Reply to Supervisor…"
+              />
+            </div>
+          )}
+        </div>
       </div>
     </div>
   );

@@ -313,7 +313,7 @@ decision_log entry fields:
 | Route | Page | Description |
 |---|---|---|
 | `/` | **Queue** | List of raw facility records with status badges. Reviewer picks a record to start a resolution session. |
-| `/resolve/:taskId` | **Resolve** | The primary workspace. Shows the raw record on the left. The right panel is idle until the reviewer clicks **"AI Agent Verification"**. Once triggered, the panel shows only Supervisor-approved findings (each with attached reasoning), "unable to validate" notices, and targeted questions from the Supervisor. Reviewer reads findings, answers questions, and approves promotion. |
+| `/resolve/:clusterId` | **Resolve** | The primary workspace. Shows the raw record on the left. The right panel is idle until the reviewer clicks **"AI Agent Verification"**. Once triggered, the panel shows only Supervisor-approved findings (each with attached reasoning), "unable to validate" notices, and targeted questions from the Supervisor. Reviewer reads findings, answers questions, and approves promotion. |
 | `/decisions` | **Decisions** | Audit log of all promoted records with outcome badges and decision log entries. |
 | `/lakebase` | **Lakebase** | Raw SQL interface for data engineers. |
 
@@ -345,6 +345,50 @@ decision_log entry fields:
 | Phone validation | Pure TypeScript regex | TRAI rules are deterministic; no external API needed |
 | Location validation | Markdown agent (SQL reasoning) | Haversine logic expressed as SQL against the India Post pincode directory |
 | Frontend | React + Vite + Tailwind + shadcn/ui | Standard AppKit client stack; accessible to non-technical users |
+
+---
+
+## 14. Implementation Status
+
+> Last updated: June 15, 2026
+
+### ✅ Complete
+
+| Area | What's done |
+|---|---|
+| **Queue page** (`/`) | Lists clusters from `facilities_raw`, paginated, searchable. "Review" button navigates to `/resolve/:clusterId`. No eager task creation. |
+| **Resolve page** (`/resolve/:clusterId`) | Two-panel layout: left = raw record fields (grouped by Identity / Location / Contact / Clinical / Sources), right = idle state with prominent "AI Agent Verification" button. Task created only when button is clicked. |
+| **Explicit trigger** | Agent does not start on record selection. Task is created and `in_progress` status set only when reviewer clicks "AI Agent Verification". |
+| **AgentChat component** | `started` prop gates the initial message and input. Component renders in idle state until `started=true`. |
+| **Supervisor agent prompt** | Written at `config/agents/supervisor/agent.md`. Registered as default agent. Sub-agents listed in frontmatter. Initial message from `ResolvePage` now includes `row_id` so the supervisor can call `evidence-fetcher` directly. |
+| **Sub-agent prompts** | All written: `evidence-fetcher`, `similarity-scorer`, `skill-matcher`, `website-validator`, `phone-validator`, `location-validator`, `facebook-validator`. |
+| **Code agents** | `website-validator`, `phone-validator`, `facebook-validator` implemented as TypeScript `createAgent` code agents with tool functions. |
+| **Server routes** | Tasks (CRUD), messages, decisions, promotion (`POST /api/tasks/:id/resolved`), decision-log, overrides, facilities (clusters, records, single row). |
+| **Database schema** | All tables defined: `resolution_tasks`, `decision_log`, `messages`, `facilities_resolved`, `entity_overrides`. |
+| **Decisions page** (`/decisions`) | Audit log table showing all decisions with outcome badges, confidence bars, and timestamps. |
+
+### ✅ Blockers — all resolved
+
+| # | Issue | Fix applied |
+|---|---|---|
+| **1** | **Client/server `raw_row_id` mismatch** | `POST /api/tasks` now accepts `{ cluster_id }`, looks up the representative `raw_row_id` from `facilities_raw`, and upserts the task. `ResolutionTask` type updated to `raw_row_id + facility_name`. Redundant `updateStatus` call removed from `ResolvePage`. |
+| **2** | **Sub-agent tool calls visible to user** | `AgentChat` now returns `null` for all `role === 'tool'` messages. Only `user` and `assistant` messages render. `Wrench` import removed. |
+| **3** | **`config/agents/validators/agent.md` is empty** | File does not exist on disk — was only open in editor. No action needed. |
+
+### ⚠️ In Progress (another agent working on this)
+
+| Area | Status |
+|---|---|
+| **Promotion UI** | `POST /api/tasks/:id/resolved` exists on server. Client-side "Approve / Defer" buttons + golden record summary in `ResolvePage` not yet built. |
+
+### 🔜 Next priorities (after promotion UI)
+
+| # | Item | Why it matters |
+|---|---|---|
+| **1** | **Supervisor prompt: Step 2 wording** | Supervisor currently says "Call evidence-fetcher with the `row_id`" — the initial message now provides this explicitly. Verify the supervisor reliably picks it up and dispatches validators in parallel, not sequentially. |
+| **2** | **DecisionsPage outcome vocabulary** | `OUTCOME_CONFIG` in `DecisionsPage.tsx` uses old outcome keys (`merged`, `split`, `confirmed_duplicate`, `confirmed_distinct`). The PRD defines `verified`, `corrected`, `partial`, `deferred`. These need to match what the supervisor actually writes. |
+| **3** | **AgentChat: "Verifying…" spinner accuracy** | The right panel header shows "Verifying…" spinner whenever `agentStarted` is true — including after the agent has finished. Should switch to a "Done" or idle state when the stream ends. |
+
 
 ---
 

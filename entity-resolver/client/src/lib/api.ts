@@ -1,7 +1,8 @@
 // Types mirrored from server/types.ts (client cannot import server code)
 export interface ResolutionTask {
   id: number;
-  cluster_id: string;
+  raw_row_id: number;
+  facility_name: string | null;
   status: 'pending' | 'in_progress' | 'resolved' | 'skipped';
   assigned_at: string | null;
   resolved_at: string | null;
@@ -32,6 +33,7 @@ export interface Message {
 }
 
 export interface FacilityRecord {
+  row_id: number;
   unique_id: string;
   name: string;
   organization_type: string | null;

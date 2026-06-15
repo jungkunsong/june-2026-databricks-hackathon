@@ -1,14 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router';
 import { Search, MapPin, Building2, Layers, ArrowRight, Loader2, RefreshCw } from 'lucide-react';
-import { clustersApi, tasksApi, type ClusterSummary } from '../lib/api';
-
-const STATUS_COLORS: Record<string, string> = {
-  pending: 'bg-yellow-100 text-yellow-800',
-  in_progress: 'bg-blue-100 text-blue-800',
-  resolved: 'bg-green-100 text-green-800',
-  skipped: 'bg-gray-100 text-gray-600',
-};
+import { clustersApi, type ClusterSummary } from '../lib/api';
 
 export function QueuePage() {
   const navigate = useNavigate();
@@ -18,9 +11,6 @@ export function QueuePage() {
   const [debouncedSearch, setDebouncedSearch] = useState('');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [taskStatuses, setTaskStatuses] = useState<Record<string, string>>({});
-  const [taskIds, setTaskIds] = useState<Record<string, number>>({});
-  const [starting, setStarting] = useState<string | null>(null);
   const [page, setPage] = useState(0);
   const PAGE_SIZE = 20;
 
@@ -47,48 +37,15 @@ export function QueuePage() {
     }
   }, [page, debouncedSearch]);
 
-  // Load existing task statuses
-  const loadTaskStatuses = useCallback(async () => {
-    try {
-      const tasks = await tasksApi.list();
-      const statusMap: Record<string, string> = {};
-      const idMap: Record<string, number> = {};
-      for (const t of tasks) {
-        statusMap[t.cluster_id] = t.status;
-        idMap[t.cluster_id] = t.id;
-      }
-      setTaskStatuses(statusMap);
-      setTaskIds(idMap);
-    } catch {
-      // non-fatal
-    }
-  }, []);
-
   useEffect(() => {
     void loadClusters();
-    void loadTaskStatuses();
-  }, [loadClusters, loadTaskStatuses]);
+  }, [loadClusters]);
 
   // Reset page on search change
   useEffect(() => { setPage(0); }, [debouncedSearch]);
 
-  async function startResolution(clusterId: string) {
-    setStarting(clusterId);
-    try {
-      const task = await tasksApi.create(clusterId);
-      setTaskStatuses((prev) => ({ ...prev, [clusterId]: 'in_progress' }));
-      setTaskIds((prev) => ({ ...prev, [clusterId]: task.id }));
-      navigate(`/resolve/${task.id}`);
-    } catch (e) {
-      setError(String(e));
-    } finally {
-      setStarting(null);
-    }
-  }
-
-  function continueResolution(clusterId: string) {
-    const taskId = taskIds[clusterId];
-    if (taskId) navigate(`/resolve/${taskId}`);
+  function startResolution(clusterId: string) {
+    navigate(`/resolve/${clusterId}`);
   }
 
   return (
@@ -116,7 +73,7 @@ export function QueuePage() {
           />
         </div>
         <button
-          onClick={() => { void loadClusters(); void loadTaskStatuses(); }}
+          onClick={() => { void loadClusters(); }}
           className="rounded-md border border-border bg-white p-2 shadow-sm hover:bg-muted"
           title="Refresh"
         >
@@ -143,8 +100,6 @@ export function QueuePage() {
       ) : (
         <div className="space-y-2">
           {clusters.map((cluster) => {
-            const status = taskStatuses[cluster.cluster_id];
-            const isStarting = starting === cluster.cluster_id;
             return (
               <div
                 key={cluster.cluster_id}
@@ -161,11 +116,6 @@ export function QueuePage() {
                     <span className="truncate font-medium text-[#0B2026]">
                       {cluster.representative_name ?? cluster.cluster_id}
                     </span>
-                    {status && (
-                      <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${STATUS_COLORS[status] ?? ''}`}>
-                        {status.replace('_', ' ')}
-                      </span>
-                    )}
                   </div>
                   <div className="mt-0.5 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-xs text-muted-foreground">
                     {(cluster.city || cluster.country) && (
@@ -189,28 +139,12 @@ export function QueuePage() {
 
                 {/* Action */}
                 <div className="flex-shrink-0">
-                  {status === 'resolved' ? (
-                    <span className="text-xs text-green-600 font-medium">Resolved ✓</span>
-                  ) : status === 'in_progress' ? (
-                    <button
-                      onClick={() => continueResolution(cluster.cluster_id)}
-                      className="flex items-center gap-1 rounded-md bg-blue-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-blue-700"
-                    >
-                      Continue <ArrowRight className="h-3 w-3" />
-                    </button>
-                  ) : (
-                    <button
-                      onClick={() => void startResolution(cluster.cluster_id)}
-                      disabled={isStarting}
-                      className="flex items-center gap-1 rounded-md bg-[#FF3621] px-3 py-1.5 text-xs font-medium text-white hover:bg-[#e02e1a] disabled:opacity-60"
-                    >
-                      {isStarting ? (
-                        <Loader2 className="h-3 w-3 animate-spin" />
-                      ) : (
-                        <>Resolve <ArrowRight className="h-3 w-3" /></>
-                      )}
-                    </button>
-                  )}
+                  <button
+                    onClick={() => startResolution(cluster.cluster_id)}
+                    className="flex items-center gap-1 rounded-md bg-[#FF3621] px-3 py-1.5 text-xs font-medium text-white hover:bg-[#e02e1a]"
+                  >
+                    Review <ArrowRight className="h-3 w-3" />
+                  </button>
                 </div>
               </div>
             );

@@ -46,14 +46,28 @@ export function setupResolutionRoutes(lb: LakebaseHandle, srv: ServerHandle) {
       }
     });
 
-    // POST /api/tasks — create or upsert a task for a raw_row_id
+    // POST /api/tasks — create or upsert a task.
+    // Accepts { cluster_id: string } from the client.
+    // Looks up the representative raw_row_id for that cluster, then upserts the task.
     app.post('/api/tasks', async (req, res) => {
       try {
-        const { raw_row_id, facility_name } = req.body as {
-          raw_row_id: number;
-          facility_name?: string;
-        };
-        if (!raw_row_id) { res.status(400).json({ error: 'raw_row_id required' }); return; }
+        const { cluster_id } = req.body as { cluster_id: string };
+        if (!cluster_id) { res.status(400).json({ error: 'cluster_id required' }); return; }
+
+        // Resolve cluster_id → raw_row_id (use the first/representative record)
+        const lookup = await lb.query<{ row_id: number; name: string }>(`
+          SELECT row_id, name
+          FROM virtue_foundation_dataset.facilities_raw
+          WHERE cluster_id = $1
+          ORDER BY row_id ASC
+          LIMIT 1
+        `, [cluster_id]);
+        if (lookup.rows.length === 0) {
+          res.status(404).json({ error: `No records found for cluster_id: ${cluster_id}` });
+          return;
+        }
+        const { row_id: raw_row_id, name: facility_name } = lookup.rows[0];
+
         const result = await lb.query(`
           INSERT INTO app.resolution_tasks (raw_row_id, facility_name, status, assigned_at)
           VALUES ($1, $2, 'in_progress', NOW())

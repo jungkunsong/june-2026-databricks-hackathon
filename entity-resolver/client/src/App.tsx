@@ -93,7 +93,7 @@ const router = createBrowserRouter([
     element: <Layout />,
     children: [
       { index: true, element: <QueuePage /> },
-      { path: 'resolve/:taskId', element: <ResolvePage /> },
+      { path: 'resolve/:clusterId', element: <ResolvePage /> },
       { path: 'decisions', element: <DecisionsPage /> },
     ],
   },
