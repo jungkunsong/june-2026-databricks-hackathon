@@ -7,13 +7,17 @@
 
 ---
 
-## 1. Problem Statement
 
-The Virtue Foundation dataset contains thousands of medical facility records sourced from multiple data providers. These raw records are incomplete, inconsistent, and unverified — phone numbers are malformatted, websites are dead, GPS coordinates don't match listed postcodes, and Facebook links point to the wrong pages. Downstream consumers of this data (researchers, NGOs, patients) cannot trust it.
 
-The challenge is that fixing this data requires judgment, not just rules. A non-technical reviewer needs to look at a record, understand what's wrong with it, and decide what the correct values should be — but they don't have the tools to independently verify a phone number format, check if a website is live, or calculate whether a GPS coordinate matches a postcode. That verification work needs to be done for them.
+The Virtue Foundation dataset contains thousands of medical facility records sourced from multiple data providers. These raw records are incomplete, inconsistent, and unverified — and the problems go far beyond surface-level contact details.
 
-Entity Resolver is a **non-technical user tool** that automates the verification work through a multi-agent AI system, presents findings in plain language, and guides the reviewer to a confident decision. The end result is a facility record that moves from the raw table into a clean, validated resolved table — with a full audit trail of how and why each decision was made.
+The easy problems are well-known: phone numbers are malformatted, websites are dead, GPS coordinates don't match listed postcodes. But the harder and more consequential problems are in the clinical data itself. A facility's listed specialties may be incomplete or use non-standard terminology. Equipment and procedure fields are sparse, inconsistently named, or copied verbatim from a source that described a different facility entirely. Capability fields — the data that determines whether a patient can receive a specific treatment at a specific location — are often missing, ambiguous, or contradicted by other fields on the same record. These are the fields that matter most to downstream consumers: researchers modeling healthcare access, NGOs routing patients to appropriate care, and health systems making referral decisions.
+
+Fixing contact details is mechanical. Fixing clinical data requires judgment. A reviewer needs to understand not just whether a phone number is valid, but whether the specialties listed are plausible for a facility of this type and size, whether the equipment inventory is consistent with the stated capabilities, and whether the procedures offered align with the specialties claimed. No single data point can be evaluated in isolation — the record has to be read as a whole.
+
+The challenge is that the people closest to this data — local health coordinators, NGO field staff, regional administrators — are not data engineers. They can tell you whether a facility performs cardiac surgery, but they cannot write a SQL query to check it. They need a tool that does the analytical and verification work for them, surfaces the right questions, and lets them apply their domain knowledge where it actually matters.
+
+Entity Resolver is that tool. It uses a multi-agent AI system to verify contact data, analyze clinical field consistency, and flag gaps and contradictions — then presents everything in plain language so a non-technical reviewer can make a confident, informed decision. The end result is a facility record that moves from the raw table into a clean, validated resolved table, with a full audit trail of what was verified, what was corrected, and why.
 
 ---
 
