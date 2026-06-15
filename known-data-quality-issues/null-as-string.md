@@ -75,16 +75,28 @@ GROUP BY column_name
 ORDER BY null_string_rows DESC;
 ```
 
+## Empty Array Strings
+
+In addition to `'null'` strings, some array-typed columns contain empty array representations that should also be treated as `NULL`:
+
+| Format | Example | Meaning |
+|---|---|---|
+| `'[]'` | `[]` | Empty JSON array — no values present |
+| `'[""]'` | `[""]` | Array containing a single empty string — effectively empty |
+
+These appear in the same array-backed string columns (`source_types`, `source_ids`, `phone_numbers`, `websites`, `countries`, `affiliationTypeIds`, `specialties`, `procedure`, `equipment`, `capability`, `source_urls`) and should be normalized to `NULL` alongside `'null'` strings.
+
 ## Root Cause
 
-The ingestion pipeline serializes missing values as the string `"null"` (likely from JSON serialization of Python `None` or JavaScript `null`) rather than omitting the field or writing a proper SQL `NULL`.
+The ingestion pipeline serializes missing values as the string `"null"` (likely from JSON serialization of Python `None` or JavaScript `null`) rather than omitting the field or writing a proper SQL `NULL`. Empty arrays (`[]`) and single-empty-string arrays (`[""]`) stem from the same serialization path when a list field is present but empty.
 
 ## Recommended Fix
 
-Normalize at read time using `NULLIF`:
+Normalize at read time using `NULLIF` and a `CASE` expression for empty arrays:
 
 ```sql
 SELECT
+    -- Scalar columns: replace 'null' string with proper NULL
     NULLIF(name, 'null')                                             AS name,
     NULLIF(description, 'null')                                      AS description,
     NULLIF(address_line1, 'null')                                    AS address_line1,
@@ -103,7 +115,6 @@ SELECT
     NULLIF(acceptsVolunteers, 'null')                                AS acceptsVolunteers,
     NULLIF(facilityTypeId, 'null')                                   AS facilityTypeId,
     NULLIF(operatorTypeId, 'null')                                   AS operatorTypeId,
-    NULLIF(affiliationTypeIds, 'null')                               AS affiliationTypeIds,
     NULLIF(area, 'null')                                             AS area,
     NULLIF(numberDoctors, 'null')                                    AS numberDoctors,
     NULLIF(capacity, 'null')                                         AS capacity,
@@ -117,14 +128,22 @@ SELECT
     NULLIF(engagement_metrics_n_followers, 'null')                   AS engagement_metrics_n_followers,
     NULLIF(engagement_metrics_n_likes, 'null')                       AS engagement_metrics_n_likes,
     NULLIF(engagement_metrics_n_engagements, 'null')                 AS engagement_metrics_n_engagements,
-    NULLIF(source_types, 'null')                                     AS source_types,
-    NULLIF(source_ids, 'null')                                       AS source_ids,
     NULLIF(source_content_id, 'null')                                AS source_content_id,
-    NULLIF(websites, 'null')                                         AS websites,
-    NULLIF(countries, 'null')                                        AS countries,
     NULLIF(organization_type, 'null')                                AS organization_type,
-    NULLIF(content_table_id, 'null')                                 AS content_table_id
+    NULLIF(content_table_id, 'null')                                 AS content_table_id,
+    -- Array-backed string columns: also null out '[]' and '[""]'
+    NULLIF(NULLIF(NULLIF(source_types,       'null'), '[]'), '[""]') AS source_types,
+    NULLIF(NULLIF(NULLIF(source_ids,         'null'), '[]'), '[""]') AS source_ids,
+    NULLIF(NULLIF(NULLIF(phone_numbers,      'null'), '[]'), '[""]') AS phone_numbers,
+    NULLIF(NULLIF(NULLIF(websites,           'null'), '[]'), '[""]') AS websites,
+    NULLIF(NULLIF(NULLIF(countries,          'null'), '[]'), '[""]') AS countries,
+    NULLIF(NULLIF(NULLIF(affiliationTypeIds, 'null'), '[]'), '[""]') AS affiliationTypeIds,
+    NULLIF(NULLIF(NULLIF(specialties,        'null'), '[]'), '[""]') AS specialties,
+    NULLIF(NULLIF(NULLIF(procedure,          'null'), '[]'), '[""]') AS procedure,
+    NULLIF(NULLIF(NULLIF(equipment,          'null'), '[]'), '[""]') AS equipment,
+    NULLIF(NULLIF(NULLIF(capability,         'null'), '[]'), '[""]') AS capability,
+    NULLIF(NULLIF(NULLIF(source_urls,        'null'), '[]'), '[""]') AS source_urls
 FROM databricks_virtue_foundation_dataset_dais_2026.virtue_foundation_dataset.facilities;
 ```
 
-Longer term, fix the serialization at the pipeline level so missing values are never written as `'null'`.
+Longer term, fix the serialization at the pipeline level so missing values are never written as `'null'`, `'[]'`, or `'[""]'`.

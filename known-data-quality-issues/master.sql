@@ -7,6 +7,7 @@
 --   1. duplicate-unique-ids.md       — deduplicate fully identical rows via ROW_NUMBER()
 --   2. invalid-unique-id-format.md   — filter out 88 rows where unique_id is not a valid UUID
 --   3. null-as-string.md             — replace literal 'null' strings with proper SQL NULL (38 columns)
+--                                      also replace empty array strings '[]' and '[""]' with NULL
 --   4. duplicate-array-column-entries.md — deduplicate entries within JSON array string columns
 --   5. farmacy-typo.md               — normalize 'farmacy' → 'pharmacy' in facilityTypeId (10 rows)
 -- =============================================================================
@@ -33,20 +34,21 @@ valid_ids AS (
 ),
 
 -- Fix #3 (null-as-string.md): Normalize literal 'null' strings to proper SQL NULL
--- across all 38 affected columns. Columns not in the affected list are passed through as-is.
+-- across all 38 affected columns. Array-backed string columns also have '[]' and
+-- '[""]' (empty array strings) normalized to NULL. Non-affected columns passed through as-is.
 null_fixed AS (
   SELECT
     unique_id,
-    NULLIF(source_types,                                    'null') AS source_types,
-    NULLIF(source_ids,                                      'null') AS source_ids,
+    NULLIF(NULLIF(NULLIF(source_types,       'null'), '[]'), '[""]') AS source_types,
+    NULLIF(NULLIF(NULLIF(source_ids,         'null'), '[]'), '[""]') AS source_ids,
     NULLIF(source_content_id,                               'null') AS source_content_id,
     NULLIF(name,                                            'null') AS name,
     NULLIF(organization_type,                               'null') AS organization_type,
     NULLIF(content_table_id,                                'null') AS content_table_id,
-    NULLIF(phone_numbers,                                   'null') AS phone_numbers,
+    NULLIF(NULLIF(NULLIF(phone_numbers,      'null'), '[]'), '[""]') AS phone_numbers,
     NULLIF(officialPhone,                                   'null') AS officialPhone,
     NULLIF(email,                                           'null') AS email,
-    NULLIF(websites,                                        'null') AS websites,
+    NULLIF(NULLIF(NULLIF(websites,           'null'), '[]'), '[""]') AS websites,
     NULLIF(officialWebsite,                                 'null') AS officialWebsite,
     NULLIF(yearEstablished,                                 'null') AS yearEstablished,
     NULLIF(acceptsVolunteers,                               'null') AS acceptsVolunteers,
@@ -59,18 +61,18 @@ null_fixed AS (
     NULLIF(address_zipOrPostcode,                           'null') AS address_zipOrPostcode,
     NULLIF(address_country,                                 'null') AS address_country,
     NULLIF(address_countryCode,                             'null') AS address_countryCode,
-    NULLIF(countries,                                       'null') AS countries,
+    NULLIF(NULLIF(NULLIF(countries,          'null'), '[]'), '[""]') AS countries,
     NULLIF(facilityTypeId,                                  'null') AS facilityTypeId,
     NULLIF(operatorTypeId,                                  'null') AS operatorTypeId,
-    NULLIF(affiliationTypeIds,                              'null') AS affiliationTypeIds,
+    NULLIF(NULLIF(NULLIF(affiliationTypeIds, 'null'), '[]'), '[""]') AS affiliationTypeIds,
     NULLIF(description,                                     'null') AS description,
     NULLIF(area,                                            'null') AS area,
     NULLIF(numberDoctors,                                   'null') AS numberDoctors,
     NULLIF(capacity,                                        'null') AS capacity,
-    specialties,   -- array column; 'null' handled in Fix #4 below
-    procedure,     -- array column; 'null' handled in Fix #4 below
-    equipment,     -- array column; 'null' handled in Fix #4 below
-    capability,    -- array column; 'null' handled in Fix #4 below
+    NULLIF(NULLIF(NULLIF(specialties,        'null'), '[]'), '[""]') AS specialties,
+    NULLIF(NULLIF(NULLIF(procedure,          'null'), '[]'), '[""]') AS procedure,
+    NULLIF(NULLIF(NULLIF(equipment,          'null'), '[]'), '[""]') AS equipment,
+    NULLIF(NULLIF(NULLIF(capability,         'null'), '[]'), '[""]') AS capability,
     NULLIF(recency_of_page_update,                          'null') AS recency_of_page_update,
     NULLIF(distinct_social_media_presence_count,            'null') AS distinct_social_media_presence_count,
     NULLIF(affiliated_staff_presence,                       'null') AS affiliated_staff_presence,
@@ -86,7 +88,7 @@ null_fixed AS (
     latitude,
     longitude,
     cluster_id,
-    NULLIF(source_urls,                                     'null') AS source_urls
+    NULLIF(NULLIF(NULLIF(source_urls,        'null'), '[]'), '[""]') AS source_urls
   FROM valid_ids
 )
 
