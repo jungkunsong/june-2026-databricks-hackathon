@@ -315,9 +315,11 @@ export function setupResolutionRoutes(lb: LakebaseHandle, srv: ServerHandle) {
         if (raw_row_id) { params.push(raw_row_id); conditions.push(`raw_row_id = $${params.length}`); }
         const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
         const result = await lb.query(`
-          SELECT * FROM app.decision_log
-          ${where}
-          ORDER BY decided_at DESC
+          SELECT dl.*, t.cluster_id
+          FROM app.decision_log dl
+          LEFT JOIN app.resolution_tasks t ON t.id = dl.task_id
+          ${where.replace(/task_id/g, 'dl.task_id').replace(/raw_row_id/g, 'dl.raw_row_id')}
+          ORDER BY dl.decided_at DESC
           LIMIT 500
         `, params);
         res.json(result.rows);

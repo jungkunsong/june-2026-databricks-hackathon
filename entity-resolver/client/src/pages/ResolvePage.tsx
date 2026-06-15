@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { useParams, useNavigate, Link } from 'react-router';
+import { useParams, useNavigate, Link, useLocation } from 'react-router';
 import {
   ArrowLeft,
   Bot,
@@ -322,6 +322,8 @@ function FieldApprovalTable({
 export function ResolvePage() {
   const { clusterId } = useParams<{ clusterId: string }>();
   const navigate = useNavigate();
+  const location = useLocation();
+  const rerun = !!(location.state as { rerun?: boolean } | null)?.rerun;
 
   const [records, setRecords] = useState<FacilityRecord[]>([]);
   const [loading, setLoading] = useState(true);
@@ -383,6 +385,16 @@ export function ResolvePage() {
   }, [clusterId]);
 
   useEffect(() => { void load(); }, [load]);
+
+  // Auto-start agent when navigated here with rerun:true (from DecisionsPage)
+  useEffect(() => {
+    if (rerun && !loading && records.length > 0 && !agentStarted) {
+      void handleStartVerification();
+      // Clear the state so a refresh doesn't re-trigger
+      window.history.replaceState({}, '');
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [rerun, loading, records.length]);
 
   async function handleStartVerification() {
     if (!clusterId) return;

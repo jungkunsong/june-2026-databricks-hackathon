@@ -10,7 +10,10 @@ import {
   RefreshCw,
   Bot,
   AlertCircle,
+  RotateCcw,
+  Pencil,
 } from 'lucide-react';
+import { useNavigate } from 'react-router';
 import { decisionLogApi, type DecisionLogEntry } from '../lib/api';
 
 // ── Outcome config — matches PRD §7.1 and decision_log.outcome column ─────────
@@ -92,6 +95,7 @@ function VerificationsTable({ verifications }: { verifications: DecisionLogEntry
 
 function DecisionRow({ entry }: { entry: DecisionLogEntry }) {
   const [expanded, setExpanded] = useState(false);
+  const navigate = useNavigate();
   const hasDetail = !!(
     entry.reasoning ||
     (entry.verifications && entry.verifications.length > 0) ||
@@ -211,6 +215,32 @@ function DecisionRow({ entry }: { entry: DecisionLogEntry }) {
                   <p className="text-xs text-muted-foreground mt-1 leading-relaxed">
                     {entry.human_notes}
                   </p>
+                </div>
+              )}
+
+              {/* Actions */}
+              {entry.cluster_id && (
+                <div className="flex items-center gap-2 pt-1 border-t border-border/50">
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      navigate(`/resolve/${entry.cluster_id}`, { state: { rerun: true } });
+                    }}
+                    className="inline-flex items-center gap-1.5 rounded-md border border-border bg-white px-3 py-1.5 text-xs font-medium text-[#0B2026] shadow-sm hover:bg-muted transition-colors"
+                  >
+                    <RotateCcw className="h-3 w-3" />
+                    Re-run validation
+                  </button>
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      navigate(`/resolve/${entry.cluster_id}`);
+                    }}
+                    className="inline-flex items-center gap-1.5 rounded-md border border-border bg-white px-3 py-1.5 text-xs font-medium text-[#0B2026] shadow-sm hover:bg-muted transition-colors"
+                  >
+                    <Pencil className="h-3 w-3" />
+                    Refine data
+                  </button>
                 </div>
               )}
             </div>

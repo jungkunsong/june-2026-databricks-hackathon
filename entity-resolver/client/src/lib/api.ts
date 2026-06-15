@@ -15,6 +15,7 @@ export interface DecisionLogEntry {
   task_id: number | null;
   resolved_id: number | null;
   raw_row_id: number | null;
+  cluster_id: string | null;
   facility_name: string | null;
   outcome: 'verified' | 'corrected' | 'partial' | 'deferred';
   confidence: number | null;
