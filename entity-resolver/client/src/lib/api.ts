@@ -156,3 +156,32 @@ export const messagesApi = {
 export const decisionLogApi = {
   list: () => req<DecisionLogEntry[]>('/api/decision-log'),
 };
+
+// ── Promote ───────────────────────────────────────────────────────────────────
+
+export interface PromotePayload {
+  task_id: number;
+  raw_row_id: number;
+  facility_name?: string | null;
+  outcome: 'verified' | 'corrected' | 'partial' | 'deferred';
+  confidence?: number | null;
+  reasoning: string;
+  agents_consulted?: string[] | null;
+  verifications?: unknown[] | null;
+  human_notes?: string | null;
+  resolved_fields?: Record<string, unknown>;
+}
+
+export interface PromoteResult {
+  resolved_id: number;
+  task_id: number;
+  outcome: string;
+}
+
+export const promoteApi = {
+  promote: (payload: PromotePayload) =>
+    req<PromoteResult>('/api/promote', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }),
+};

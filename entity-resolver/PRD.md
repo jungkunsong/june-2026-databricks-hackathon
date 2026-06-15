@@ -365,7 +365,7 @@ decision_log entry fields:
 | **Code agents** | `website-validator`, `phone-validator`, `facebook-validator` implemented as TypeScript `createAgent` code agents with tool functions. |
 | **Server routes** | Tasks (CRUD), messages, decisions, promotion (`POST /api/tasks/:id/resolved`), decision-log, overrides, facilities (clusters, records, single row). |
 | **Database schema** | All tables defined: `resolution_tasks`, `decision_log`, `messages`, `facilities_resolved`, `entity_overrides`. |
-| **Decisions page** (`/decisions`) | Audit log table showing all decisions with outcome badges, confidence bars, and timestamps. |
+| **Decisions page** (`/decisions`) | Fully rewritten: correct outcome vocabulary (`verified`/`corrected`/`partial`/`deferred`), hits real `GET /api/decision-log` endpoint, expandable rows showing Supervisor reasoning + per-field verifications + reviewer notes, summary count cards, refresh button. |
 
 ### ✅ Blockers — all resolved
 
@@ -386,7 +386,7 @@ decision_log entry fields:
 | # | Item | Why it matters |
 |---|---|---|
 | **1** | **Supervisor prompt: Step 2 wording** | Supervisor currently says "Call evidence-fetcher with the `row_id`" — the initial message now provides this explicitly. Verify the supervisor reliably picks it up and dispatches validators in parallel, not sequentially. |
-| **2** | **DecisionsPage outcome vocabulary** | `OUTCOME_CONFIG` in `DecisionsPage.tsx` uses old outcome keys (`merged`, `split`, `confirmed_duplicate`, `confirmed_distinct`). The PRD defines `verified`, `corrected`, `partial`, `deferred`. These need to match what the supervisor actually writes. |
+| **2** | ~~**DecisionsPage outcome vocabulary**~~ | ✅ Fixed — `OUTCOME_CONFIG` now uses correct keys. `Decision` type replaced with `DecisionLogEntry` matching `decision_log` schema. `decisionsApi` replaced with `decisionLogApi` hitting `GET /api/decision-log`. |
 | **3** | **AgentChat: "Verifying…" spinner accuracy** | The right panel header shows "Verifying…" spinner whenever `agentStarted` is true — including after the agent has finished. Should switch to a "Done" or idle state when the stream ends. |
 
 

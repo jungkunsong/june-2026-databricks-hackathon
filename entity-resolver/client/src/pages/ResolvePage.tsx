@@ -4,6 +4,8 @@ import {
   ArrowLeft,
   Bot,
   Building2,
+  CheckCircle2,
+  Clock,
   Loader2,
   MapPin,
   Phone,
@@ -13,7 +15,7 @@ import {
   ChevronUp,
   Sparkles,
 } from 'lucide-react';
-import { clustersApi, tasksApi, type FacilityRecord } from '../lib/api';
+import { clustersApi, tasksApi, promoteApi, type FacilityRecord, type ResolutionTask } from '../lib/api';
 import { AgentChat } from './agents/AgentChat';
 
 // ── helpers ──────────────────────────────────────────────────────────────────
@@ -79,10 +81,19 @@ export function ResolvePage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
+  // Task created when verification starts
+  const [task, setTask] = useState<ResolutionTask | null>(null);
+
   // Whether the user has clicked "AI Agent Verification"
   const [agentStarted, setAgentStarted] = useState(false);
   const [starting, setStarting] = useState(false);
   const [agentStreaming, setAgentStreaming] = useState(false);
+
+  // Decision panel
+  const [humanNotes, setHumanNotes] = useState('');
+  const [promoting, setPromoting] = useState(false);
+  const [promoted, setPromoted] = useState<{ outcome: string; resolved_id: number } | null>(null);
+  const [promoteError, setPromoteError] = useState<string | null>(null);
 
   const [initialMessage, setInitialMessage] = useState<string>('');
 
@@ -108,12 +119,58 @@ export function ResolvePage() {
     setStarting(true);
     try {
       // Create (or find existing) task — server sets in_progress on upsert
-      await tasksApi.create(clusterId);
+      const created = await tasksApi.create(clusterId);
+      setTask(created);
       setAgentStarted(true);
     } catch (e) {
       setError(String(e));
     } finally {
       setStarting(false);
+    }
+  }
+
+  async function handleDecision(outcome: 'verified' | 'deferred') {
+    if (!task) return;
+    const primary = records[0];
+    setPromoting(true);
+    setPromoteError(null);
+    try {
+      const result = await promoteApi.promote({
+        task_id: task.id,
+        raw_row_id: task.raw_row_id,
+        facility_name: task.facility_name ?? primary?.name ?? null,
+        outcome,
+        reasoning: humanNotes.trim() || `Human reviewer marked as ${outcome}.`,
+        human_notes: humanNotes.trim() || null,
+        resolved_fields: primary ? {
+          unique_id: primary.unique_id,
+          name: primary.name,
+          organization_type: primary.organization_type,
+          facilityTypeId: primary.facilityTypeId,
+          description: primary.description,
+          phone_numbers: primary.phone_numbers,
+          email: primary.email,
+          websites: primary.websites,
+          address_line1: primary.address_line1,
+          address_city: primary.address_city,
+          address_stateOrRegion: primary.address_stateOrRegion,
+          address_zipOrPostcode: primary.address_zipOrPostcode,
+          address_country: primary.address_country,
+          latitude: primary.latitude,
+          longitude: primary.longitude,
+          specialties: primary.specialties,
+          procedure: primary.procedure,
+          equipment: primary.equipment,
+          capability: primary.capability,
+          capacity: primary.capacity,
+          numberDoctors: primary.numberDoctors,
+        } : {},
+      });
+      setPromoted({ outcome, resolved_id: result.resolved_id });
+    } catch (e) {
+      setPromoteError(String(e));
+    } finally {
+      setPromoting(false);
     }
   }
 
@@ -246,9 +303,12 @@ export function ResolvePage() {
                 Verifying…
               </span>
             )}
-            {agentStarted && !agentStreaming && (
-              <span className="text-xs text-green-600 font-medium">
-                Ready
+            {agentStarted && !agentStreaming && !promoted && (
+              <span className="text-xs text-green-600 font-medium">Ready</span>
+            )}
+            {promoted && (
+              <span className={`text-xs font-medium ${promoted.outcome === 'verified' ? 'text-green-600' : 'text-yellow-600'}`}>
+                {promoted.outcome === 'verified' ? 'Approved' : 'Deferred'}
               </span>
             )}
           </div>
@@ -283,15 +343,73 @@ export function ResolvePage() {
               </p>
             </div>
           ) : (
-            /* Active state — AgentChat takes over */
-            <div className="flex-1 min-h-0">
-              <AgentChat
-                initialMessage={initialMessage}
-                started={agentStarted}
-                placeholder="Reply to Supervisor…"
-                onStreamingChange={setAgentStreaming}
-              />
-            </div>
+            /* Active state — AgentChat + decision panel */
+            <>
+              <div className="flex-1 min-h-0 overflow-hidden">
+                <AgentChat
+                  initialMessage={initialMessage}
+                  started={agentStarted}
+                  placeholder="Reply to Supervisor…"
+                  onStreamingChange={setAgentStreaming}
+                />
+              </div>
+
+              {/* ── Decision panel — docked at bottom ── */}
+              {!promoted ? (
+                <div className="flex-shrink-0 border-t border-border bg-[#FAFAF9] px-4 py-3 space-y-2.5">
+                  <p className="text-xs font-semibold text-[#0B2026]">Your Decision</p>
+                  <textarea
+                    value={humanNotes}
+                    onChange={(e) => setHumanNotes(e.target.value)}
+                    placeholder="Optional notes (e.g. confirmed via phone call)…"
+                    rows={2}
+                    className="w-full rounded-md border border-border bg-white px-3 py-2 text-xs text-[#0B2026] placeholder:text-muted-foreground/60 resize-none focus:outline-none focus:ring-1 focus:ring-[#FF3621]/40"
+                  />
+                  {promoteError && (
+                    <p className="text-xs text-red-600">{promoteError}</p>
+                  )}
+                  <div className="flex gap-2">
+                    <button
+                      onClick={() => void handleDecision('verified')}
+                      disabled={promoting || agentStreaming}
+                      className="flex flex-1 items-center justify-center gap-1.5 rounded-md bg-[#FF3621] px-4 py-2 text-xs font-semibold text-white hover:bg-[#e02e1a] disabled:opacity-50 transition-colors"
+                    >
+                      {promoting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <CheckCircle2 className="h-3.5 w-3.5" />}
+                      Approve &amp; Promote
+                    </button>
+                    <button
+                      onClick={() => void handleDecision('deferred')}
+                      disabled={promoting || agentStreaming}
+                      className="flex flex-1 items-center justify-center gap-1.5 rounded-md border border-border bg-white px-4 py-2 text-xs font-semibold text-[#0B2026] hover:bg-muted/40 disabled:opacity-50 transition-colors"
+                    >
+                      {promoting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Clock className="h-3.5 w-3.5" />}
+                      Defer
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <div className={`flex-shrink-0 border-t px-4 py-3 flex items-center justify-between ${
+                  promoted.outcome === 'verified'
+                    ? 'border-green-200 bg-green-50'
+                    : 'border-yellow-200 bg-yellow-50'
+                }`}>
+                  <div className="flex items-center gap-2">
+                    <CheckCircle2 className={`h-4 w-4 ${promoted.outcome === 'verified' ? 'text-green-600' : 'text-yellow-600'}`} />
+                    <span className="text-xs font-semibold text-[#0B2026]">
+                      {promoted.outcome === 'verified'
+                        ? `Promoted to resolved (ID ${promoted.resolved_id})`
+                        : 'Deferred for later review'}
+                    </span>
+                  </div>
+                  <button
+                    onClick={() => navigate('/decisions')}
+                    className="text-xs text-[#FF3621] hover:underline font-medium"
+                  >
+                    View in Decisions →
+                  </button>
+                </div>
+              )}
+            </>
           )}
         </div>
       </div>
