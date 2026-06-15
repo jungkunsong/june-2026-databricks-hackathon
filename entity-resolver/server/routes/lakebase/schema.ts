@@ -5,66 +5,33 @@ import type { LakebaseHandle } from '../../plugin-handles';
 // initSchema only runs CREATE TABLE IF NOT EXISTS — never CREATE SCHEMA.
 //
 // Data flow:
-//   virtue_foundation_dataset.facilities_raw   ← copied in by the notebook (read-only to the app)
-//     └─ app.facilities_resolved               ← golden records written by the supervisor agent
-//         └─ app.decision_log                  ← append-only audit trail, one row per agent decision
+//   virtue_foundation_dataset.facilities_raw   ← read-only source
+//     └─ app.facilities_resolved               ← promoted records written by the supervisor agent
+//         └─ app.decision_log                  ← append-only audit trail, one row per promotion
 
 const APP_TABLES_SQL = [
   // ── Workflow state ────────────────────────────────────────────────────────
+  // One row per raw facility record under review.
+  // Keyed on raw_row_id (the row_id from facilities_raw).
   `CREATE TABLE IF NOT EXISTS app.resolution_tasks (
     id            SERIAL PRIMARY KEY,
-    cluster_id    TEXT NOT NULL UNIQUE,
-    status        TEXT NOT NULL DEFAULT 'pending',
+    raw_row_id    INTEGER NOT NULL UNIQUE,   -- row_id from facilities_raw
+    facility_name TEXT,                      -- denormalised for display
+    status        TEXT NOT NULL DEFAULT 'pending',  -- pending | in_progress | resolved | skipped
     assigned_at   TIMESTAMPTZ,
     resolved_at   TIMESTAMPTZ,
     created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
   )`,
 
-  `CREATE TABLE IF NOT EXISTS app.messages (
-    id          SERIAL PRIMARY KEY,
-    task_id     INTEGER NOT NULL REFERENCES app.resolution_tasks(id),
-    role        TEXT NOT NULL,
-    agent_name  TEXT,
-    content     TEXT NOT NULL,
-    metadata    JSONB,
-    created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
-  )`,
-
-  `CREATE TABLE IF NOT EXISTS app.entity_overrides (
-    id          SERIAL PRIMARY KEY,
-    task_id     INTEGER NOT NULL REFERENCES app.resolution_tasks(id),
-    cluster_id  TEXT NOT NULL,
-    field_name  TEXT NOT NULL,
-    old_value   TEXT,
-    new_value   TEXT,
-    changed_by  TEXT NOT NULL DEFAULT 'human',
-    created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
-  )`,
-
-  // ── Legacy decisions table (kept for UI compatibility) ────────────────────
-  // Written by the human via POST /api/tasks/:id/decisions.
-  // New audit trail lives in app.decision_log (written by the supervisor agent).
-  `CREATE TABLE IF NOT EXISTS app.decisions (
-    id            SERIAL PRIMARY KEY,
-    task_id       INTEGER NOT NULL REFERENCES app.resolution_tasks(id),
-    cluster_id    TEXT NOT NULL,
-    outcome       TEXT NOT NULL,
-    golden_record JSONB,
-    confidence    NUMERIC(4,3),
-    reasoning     TEXT,
-    decided_by    TEXT NOT NULL DEFAULT 'human',
-    created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
-  )`,
-
   // ── Resolved output ───────────────────────────────────────────────────────
-  // One row per resolved entity (golden record).
-  // Written by the supervisor agent after a merge/split decision is confirmed.
+  // One row per promoted facility record (golden record).
+  // Written atomically with decision_log by POST /api/promote.
   `CREATE TABLE IF NOT EXISTS app.facilities_resolved (
     id                      SERIAL PRIMARY KEY,
     task_id                 INTEGER REFERENCES app.resolution_tasks(id),
-    cluster_id              TEXT NOT NULL,
-    -- Golden record fields (best values chosen across the cluster)
+    raw_row_id              INTEGER NOT NULL,   -- source row from facilities_raw
+    -- Verified / corrected field values
     unique_id               TEXT,
     name                    TEXT,
     organization_type       TEXT,
@@ -73,6 +40,7 @@ const APP_TABLES_SQL = [
     phone_numbers           TEXT,
     email                   TEXT,
     websites                TEXT,
+    facebookLink            TEXT,
     address_line1           TEXT,
     address_city            TEXT,
     "address_stateOrRegion" TEXT,
@@ -86,43 +54,48 @@ const APP_TABLES_SQL = [
     capability              TEXT,
     capacity                TEXT,
     "numberDoctors"         TEXT,
-    -- Provenance: which raw row_ids were merged into this record
-    source_row_ids          INTEGER[],
-    source_types            TEXT,
     -- Resolution metadata
-    resolution_outcome      TEXT NOT NULL,  -- 'merged' | 'split' | 'kept_as_is'
+    outcome                 TEXT NOT NULL,  -- verified | corrected | partial | deferred
     confidence              NUMERIC(4,3),
     resolved_at             TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     resolved_by             TEXT NOT NULL DEFAULT 'supervisor_agent'
   )`,
 
   // ── Decision log ──────────────────────────────────────────────────────────
-  // Append-only audit trail written by the supervisor agent at the end of
-  // every resolution.  One row per decision, capturing the full reasoning
-  // chain so we can trace exactly why a record moved from raw → resolved.
+  // Append-only audit trail written by the supervisor agent at promotion time.
+  // One row per promoted record. Captures the full reasoning chain.
   `CREATE TABLE IF NOT EXISTS app.decision_log (
-    id               SERIAL PRIMARY KEY,
-    task_id          INTEGER NOT NULL REFERENCES app.resolution_tasks(id),
-    cluster_id       TEXT NOT NULL,
-    -- Which agent produced this entry
-    agent_name       TEXT NOT NULL,
-    -- What was decided
-    decision_type    TEXT NOT NULL,    -- 'merge' | 'split' | 'keep' | 'flag' | 'override'
-    decision_outcome TEXT NOT NULL,    -- human-readable outcome label
-    confidence       NUMERIC(4,3),
-    -- Full reasoning from the agent (prose / markdown)
-    reasoning        TEXT NOT NULL,
-    -- Structured evidence the agent cited (field comparisons, similarity scores, etc.)
-    evidence         JSONB,
-    -- Human reviewer response (null until the human acts)
-    human_action     TEXT,             -- 'approved' | 'rejected' | 'modified'
-    human_notes      TEXT,
-    reviewed_at      TIMESTAMPTZ,
-    -- Which raw rows were considered
-    raw_row_ids      INTEGER[],
-    -- Which resolved record was produced (null if decision was rejected)
-    resolved_id      INTEGER REFERENCES app.facilities_resolved(id),
-    created_at       TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    id                SERIAL PRIMARY KEY,
+    task_id           INTEGER NOT NULL REFERENCES app.resolution_tasks(id),
+    resolved_id       INTEGER REFERENCES app.facilities_resolved(id),
+    raw_row_id        INTEGER NOT NULL,
+    facility_name     TEXT,
+    -- Promotion outcome
+    outcome           TEXT NOT NULL,   -- verified | corrected | partial | deferred
+    confidence        NUMERIC(4,3),
+    -- Supervisor reasoning (prose summary)
+    reasoning         TEXT NOT NULL,
+    -- Which sub-agents ran
+    agents_consulted  TEXT[],
+    -- Per-field verification results
+    -- Array of { field, status, old_value, new_value, agent, supervisor_reasoning }
+    verifications     JSONB,
+    -- Human reviewer input
+    human_notes       TEXT,
+    decided_at        TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  )`,
+
+  // ── Entity overrides ──────────────────────────────────────────────────────
+  // Field-level corrections applied by the reviewer or agents before promotion.
+  `CREATE TABLE IF NOT EXISTS app.entity_overrides (
+    id          SERIAL PRIMARY KEY,
+    task_id     INTEGER NOT NULL REFERENCES app.resolution_tasks(id),
+    raw_row_id  INTEGER NOT NULL,
+    field_name  TEXT NOT NULL,
+    old_value   TEXT,
+    new_value   TEXT NOT NULL,
+    changed_by  TEXT NOT NULL DEFAULT 'human',
+    created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
   )`,
 ];
 
