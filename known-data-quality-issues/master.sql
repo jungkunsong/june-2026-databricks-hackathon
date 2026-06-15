@@ -4,13 +4,17 @@
 -- Source: databricks_virtue_foundation_dataset_dais_2026.virtue_foundation_dataset.facilities
 --
 -- Fixes applied (each tied to a .md file in this directory):
---   1. duplicate-unique-ids.md       — deduplicate fully identical rows via ROW_NUMBER()
---   2. invalid-unique-id-format.md   — filter out 88 rows where unique_id is not a valid UUID
---   3. null-as-string.md             — replace literal 'null' strings with proper SQL NULL (38 columns)
---                                      also replace empty array strings '[]' and '[""]' with NULL
+--   1. duplicate-unique-ids.md         — deduplicate fully identical rows via ROW_NUMBER()
+--   2. invalid-unique-id-format.md     — filter out 88 rows where unique_id is not a valid UUID
+--   3. null-as-string.md               — replace literal 'null' strings with proper SQL NULL (38 columns)
+--                                        also replace empty array strings '[]' and '[""]' with NULL
 --   4. duplicate-array-column-entries.md — deduplicate entries within JSON array string columns
---   5. farmacy-typo.md               — normalize 'farmacy' → 'pharmacy' in facilityTypeId (10 rows)
+--   5. farmacy-typo.md                 — normalize 'farmacy' → 'pharmacy' in facilityTypeId (10 rows)
 --   6. redundant-coordinates-column.md — drop coordinates (fully redundant with latitude/longitude)
+--   7. non-standard-city-names.md      — normalize 16 colloquial/legacy city names to official
+--                                        India Post district names in address_city (799 rows)
+--   8. non-standard-state-names.md     — normalize 10 abbreviated/pre-rename state names to
+--                                        official India Post statenames in address_stateOrRegion (103 rows)
 -- =============================================================================
 
 CREATE OR REPLACE TABLE workspace.default.facilities AS
@@ -97,6 +101,11 @@ null_fixed AS (
 -- NULL and empty array '[]' values are passed through unchanged.
 
 -- Fix #5 (farmacy-typo.md): Normalize 'farmacy' → 'pharmacy' in facilityTypeId (10 rows)
+
+-- Fix #7 (non-standard-city-names.md): Normalize 16 colloquial/legacy/renamed city names
+-- to their official India Post district names in address_city (799 rows).
+-- Fix #8 (non-standard-state-names.md): Normalize 10 abbreviated/pre-rename state names
+-- to official India Post statenames in address_stateOrRegion (103 rows).
 SELECT
   unique_id,
   CASE WHEN source_types      IS NULL OR source_types      = '[]' THEN source_types      ELSE to_json(array_distinct(from_json(source_types,      'array<string>'))) END AS source_types,
@@ -116,8 +125,41 @@ SELECT
   address_line1,
   address_line2,
   address_line3,
-  address_city,
-  address_stateOrRegion,
+  -- Fix #7: normalize colloquial/legacy/renamed city names to official India Post district names
+  CASE UPPER(TRIM(address_city))
+    WHEN 'AHMEDABAD'   THEN 'Ahmadabad'
+    WHEN 'AHEMDABAD'   THEN 'Ahmadabad'
+    WHEN 'BANGALORE'   THEN 'Bengaluru Urban'
+    WHEN 'BOMBAY'      THEN 'Mumbai'
+    WHEN 'GURGAON'     THEN 'Gurugram'
+    WHEN 'KANPUR'      THEN 'Kanpur Nagar'
+    WHEN 'MYSORE'      THEN 'Mysuru'
+    WHEN 'MANGALORE'   THEN 'Dakshina Kannada'
+    WHEN 'CALICUT'     THEN 'Kozhikode'
+    WHEN 'COCHIN'      THEN 'Ernakulam'
+    WHEN 'TRIVANDRUM'  THEN 'Thiruvananthapuram'
+    WHEN 'ALLAHABAD'   THEN 'Prayagraj'
+    WHEN 'VIZAG'       THEN 'Visakhapatnam'
+    WHEN 'PONDICHERRY' THEN 'Puducherry'
+    WHEN 'BARODA'      THEN 'Vadodara'
+    WHEN 'HUBLI'       THEN 'Dharwad'
+    ELSE address_city
+  END AS address_city,
+  -- Fix #8: normalize abbreviated/pre-rename state names to official India Post statenames
+  -- Note: 'Andhra Pradesh' → 'Telangana' is intentionally excluded (manual review required)
+  CASE UPPER(TRIM(address_stateOrRegion))
+    WHEN 'TAMILNADU'           THEN 'Tamil Nadu'
+    WHEN 'ORISSA'              THEN 'Odisha'
+    WHEN 'UTTARANCHAL'         THEN 'Uttarakhand'
+    WHEN 'PONDICHERRY'         THEN 'Puducherry'
+    WHEN 'ANDAMAN AND NICOBAR' THEN 'Andaman & Nicobar Islands'
+    WHEN 'JAMMU AND KASHMIR'   THEN 'Jammu & Kashmir'
+    WHEN 'U.P'                 THEN 'Uttar Pradesh'
+    WHEN 'U.P.'                THEN 'Uttar Pradesh'
+    WHEN 'M.P'                 THEN 'Madhya Pradesh'
+    WHEN 'M.P.'                THEN 'Madhya Pradesh'
+    ELSE address_stateOrRegion
+  END AS address_stateOrRegion,
   address_zipOrPostcode,
   address_country,
   address_countryCode,
