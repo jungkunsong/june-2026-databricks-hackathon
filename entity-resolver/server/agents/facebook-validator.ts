@@ -18,11 +18,12 @@ import { z } from 'zod';
  */
 export const facebookValidatorAgent = createAgent({
   name: 'facebook-validator',
+  model: 'OpenAI',
   instructions: [
     'You are the Facebook Page Validator sub-agent.',
-    'When given facility records that have a facebookLink field, call `check_facebook_page` for each URL.',
-    'After all checks complete, return a structured markdown table and a JSON summary',
-    'that classifies each page match and flags shared pages and mismatches.',
+    'When given a facebookLink URL, call `check_facebook_page` once.',
+    'Return ONLY a single compact JSON object — no markdown, no tables, no prose:',
+    '{"status":"verified|mismatch|blocked|error","title":"<og:title or null>","note":"<one sentence>"}',
   ].join(' '),
   tools: {
     check_facebook_page: tool({

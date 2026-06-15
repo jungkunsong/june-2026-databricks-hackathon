@@ -11,11 +11,12 @@ import { z } from 'zod';
  */
 export const phoneValidatorAgent = createAgent({
   name: 'phone-validator',
+  model: 'OpenAI',
   instructions: [
     'You are the Phone Number Validator sub-agent.',
-    'When given facility records, call `validate_phone_number` for every entry in the `phone_numbers` field.',
-    'After all checks complete, return a structured markdown table and a JSON summary',
-    'that classifies each number and flags shared numbers across records as merge signals.',
+    'When given a phone_numbers value, call `validate_phone_number` once for the primary number.',
+    'Return ONLY a single compact JSON object — no markdown, no tables, no prose:',
+    '{"status":"valid|invalid|suspicious","number":"<normalised>","note":"<one sentence>"}',
   ].join(' '),
   tools: {
     validate_phone_number: tool({

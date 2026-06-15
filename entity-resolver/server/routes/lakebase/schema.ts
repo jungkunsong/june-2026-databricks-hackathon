@@ -15,7 +15,7 @@ const APP_TABLES_SQL = [
     id            SERIAL PRIMARY KEY,
     raw_row_id    INTEGER,
     facility_name TEXT,
-    cluster_id    TEXT,
+    cluster_id    TEXT UNIQUE,
     status        TEXT NOT NULL DEFAULT 'pending',
     assigned_at   TIMESTAMPTZ,
     resolved_at   TIMESTAMPTZ,
@@ -28,6 +28,7 @@ const APP_TABLES_SQL = [
     id                      SERIAL PRIMARY KEY,
     task_id                 INTEGER REFERENCES app.resolution_tasks(id),
     raw_row_id              INTEGER,
+    cluster_id              TEXT,
     unique_id               TEXT,
     name                    TEXT,
     organization_type       TEXT,
@@ -51,6 +52,7 @@ const APP_TABLES_SQL = [
     capacity                TEXT,
     "numberDoctors"         TEXT,
     outcome                 TEXT NOT NULL DEFAULT 'verified',
+    resolution_outcome      TEXT NOT NULL DEFAULT 'verified',
     confidence              NUMERIC(4,3),
     resolved_at             TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     resolved_by             TEXT NOT NULL DEFAULT 'supervisor_agent'
@@ -106,6 +108,200 @@ const MIGRATION_SQL = [
     END IF;
   END $$`,
 
+  // facilities_resolved: add every column that may be missing from older table versions
+  `DO $$ BEGIN
+    IF NOT EXISTS (
+      SELECT 1 FROM information_schema.columns
+      WHERE table_schema='app' AND table_name='facilities_resolved' AND column_name='raw_row_id'
+    ) THEN
+      ALTER TABLE app.facilities_resolved ADD COLUMN raw_row_id INTEGER;
+    END IF;
+  END $$`,
+  `DO $$ BEGIN
+    IF NOT EXISTS (
+      SELECT 1 FROM information_schema.columns
+      WHERE table_schema='app' AND table_name='facilities_resolved' AND column_name='task_id'
+    ) THEN
+      ALTER TABLE app.facilities_resolved ADD COLUMN task_id INTEGER REFERENCES app.resolution_tasks(id);
+    END IF;
+  END $$`,
+  `DO $$ BEGIN
+    IF NOT EXISTS (
+      SELECT 1 FROM information_schema.columns
+      WHERE table_schema='app' AND table_name='facilities_resolved' AND column_name='unique_id'
+    ) THEN
+      ALTER TABLE app.facilities_resolved ADD COLUMN unique_id TEXT;
+    END IF;
+  END $$`,
+  `DO $$ BEGIN
+    IF NOT EXISTS (
+      SELECT 1 FROM information_schema.columns
+      WHERE table_schema='app' AND table_name='facilities_resolved' AND column_name='organization_type'
+    ) THEN
+      ALTER TABLE app.facilities_resolved ADD COLUMN organization_type TEXT;
+    END IF;
+  END $$`,
+  `DO $$ BEGIN
+    IF NOT EXISTS (
+      SELECT 1 FROM information_schema.columns
+      WHERE table_schema='app' AND table_name='facilities_resolved' AND column_name='facilityTypeId'
+    ) THEN
+      ALTER TABLE app.facilities_resolved ADD COLUMN "facilityTypeId" TEXT;
+    END IF;
+  END $$`,
+  `DO $$ BEGIN
+    IF NOT EXISTS (
+      SELECT 1 FROM information_schema.columns
+      WHERE table_schema='app' AND table_name='facilities_resolved' AND column_name='description'
+    ) THEN
+      ALTER TABLE app.facilities_resolved ADD COLUMN description TEXT;
+    END IF;
+  END $$`,
+  `DO $$ BEGIN
+    IF NOT EXISTS (
+      SELECT 1 FROM information_schema.columns
+      WHERE table_schema='app' AND table_name='facilities_resolved' AND column_name='phone_numbers'
+    ) THEN
+      ALTER TABLE app.facilities_resolved ADD COLUMN phone_numbers TEXT;
+    END IF;
+  END $$`,
+  `DO $$ BEGIN
+    IF NOT EXISTS (
+      SELECT 1 FROM information_schema.columns
+      WHERE table_schema='app' AND table_name='facilities_resolved' AND column_name='email'
+    ) THEN
+      ALTER TABLE app.facilities_resolved ADD COLUMN email TEXT;
+    END IF;
+  END $$`,
+  `DO $$ BEGIN
+    IF NOT EXISTS (
+      SELECT 1 FROM information_schema.columns
+      WHERE table_schema='app' AND table_name='facilities_resolved' AND column_name='websites'
+    ) THEN
+      ALTER TABLE app.facilities_resolved ADD COLUMN websites TEXT;
+    END IF;
+  END $$`,
+  `DO $$ BEGIN
+    IF NOT EXISTS (
+      SELECT 1 FROM information_schema.columns
+      WHERE table_schema='app' AND table_name='facilities_resolved' AND column_name='address_line1'
+    ) THEN
+      ALTER TABLE app.facilities_resolved ADD COLUMN address_line1 TEXT;
+    END IF;
+  END $$`,
+  `DO $$ BEGIN
+    IF NOT EXISTS (
+      SELECT 1 FROM information_schema.columns
+      WHERE table_schema='app' AND table_name='facilities_resolved' AND column_name='address_city'
+    ) THEN
+      ALTER TABLE app.facilities_resolved ADD COLUMN address_city TEXT;
+    END IF;
+  END $$`,
+  `DO $$ BEGIN
+    IF NOT EXISTS (
+      SELECT 1 FROM information_schema.columns
+      WHERE table_schema='app' AND table_name='facilities_resolved' AND column_name='address_stateOrRegion'
+    ) THEN
+      ALTER TABLE app.facilities_resolved ADD COLUMN "address_stateOrRegion" TEXT;
+    END IF;
+  END $$`,
+  `DO $$ BEGIN
+    IF NOT EXISTS (
+      SELECT 1 FROM information_schema.columns
+      WHERE table_schema='app' AND table_name='facilities_resolved' AND column_name='address_zipOrPostcode'
+    ) THEN
+      ALTER TABLE app.facilities_resolved ADD COLUMN "address_zipOrPostcode" TEXT;
+    END IF;
+  END $$`,
+  `DO $$ BEGIN
+    IF NOT EXISTS (
+      SELECT 1 FROM information_schema.columns
+      WHERE table_schema='app' AND table_name='facilities_resolved' AND column_name='address_country'
+    ) THEN
+      ALTER TABLE app.facilities_resolved ADD COLUMN address_country TEXT;
+    END IF;
+  END $$`,
+  `DO $$ BEGIN
+    IF NOT EXISTS (
+      SELECT 1 FROM information_schema.columns
+      WHERE table_schema='app' AND table_name='facilities_resolved' AND column_name='latitude'
+    ) THEN
+      ALTER TABLE app.facilities_resolved ADD COLUMN latitude DOUBLE PRECISION;
+    END IF;
+  END $$`,
+  `DO $$ BEGIN
+    IF NOT EXISTS (
+      SELECT 1 FROM information_schema.columns
+      WHERE table_schema='app' AND table_name='facilities_resolved' AND column_name='longitude'
+    ) THEN
+      ALTER TABLE app.facilities_resolved ADD COLUMN longitude DOUBLE PRECISION;
+    END IF;
+  END $$`,
+  `DO $$ BEGIN
+    IF NOT EXISTS (
+      SELECT 1 FROM information_schema.columns
+      WHERE table_schema='app' AND table_name='facilities_resolved' AND column_name='specialties'
+    ) THEN
+      ALTER TABLE app.facilities_resolved ADD COLUMN specialties TEXT;
+    END IF;
+  END $$`,
+  `DO $$ BEGIN
+    IF NOT EXISTS (
+      SELECT 1 FROM information_schema.columns
+      WHERE table_schema='app' AND table_name='facilities_resolved' AND column_name='procedure'
+    ) THEN
+      ALTER TABLE app.facilities_resolved ADD COLUMN procedure TEXT;
+    END IF;
+  END $$`,
+  `DO $$ BEGIN
+    IF NOT EXISTS (
+      SELECT 1 FROM information_schema.columns
+      WHERE table_schema='app' AND table_name='facilities_resolved' AND column_name='equipment'
+    ) THEN
+      ALTER TABLE app.facilities_resolved ADD COLUMN equipment TEXT;
+    END IF;
+  END $$`,
+  `DO $$ BEGIN
+    IF NOT EXISTS (
+      SELECT 1 FROM information_schema.columns
+      WHERE table_schema='app' AND table_name='facilities_resolved' AND column_name='capability'
+    ) THEN
+      ALTER TABLE app.facilities_resolved ADD COLUMN capability TEXT;
+    END IF;
+  END $$`,
+  `DO $$ BEGIN
+    IF NOT EXISTS (
+      SELECT 1 FROM information_schema.columns
+      WHERE table_schema='app' AND table_name='facilities_resolved' AND column_name='capacity'
+    ) THEN
+      ALTER TABLE app.facilities_resolved ADD COLUMN capacity TEXT;
+    END IF;
+  END $$`,
+  `DO $$ BEGIN
+    IF NOT EXISTS (
+      SELECT 1 FROM information_schema.columns
+      WHERE table_schema='app' AND table_name='facilities_resolved' AND column_name='numberDoctors'
+    ) THEN
+      ALTER TABLE app.facilities_resolved ADD COLUMN "numberDoctors" TEXT;
+    END IF;
+  END $$`,
+  `DO $$ BEGIN
+    IF NOT EXISTS (
+      SELECT 1 FROM information_schema.columns
+      WHERE table_schema='app' AND table_name='facilities_resolved' AND column_name='confidence'
+    ) THEN
+      ALTER TABLE app.facilities_resolved ADD COLUMN confidence NUMERIC(4,3);
+    END IF;
+  END $$`,
+  `DO $$ BEGIN
+    IF NOT EXISTS (
+      SELECT 1 FROM information_schema.columns
+      WHERE table_schema='app' AND table_name='facilities_resolved' AND column_name='resolved_by'
+    ) THEN
+      ALTER TABLE app.facilities_resolved ADD COLUMN resolved_by TEXT NOT NULL DEFAULT 'supervisor_agent';
+    END IF;
+  END $$`,
+
   // facilities_resolved: add outcome + facebookLink if missing
   `DO $$ BEGIN
     IF NOT EXISTS (
@@ -121,6 +317,48 @@ const MIGRATION_SQL = [
       WHERE table_schema='app' AND table_name='facilities_resolved' AND column_name='facebookLink'
     ) THEN
       ALTER TABLE app.facilities_resolved ADD COLUMN "facebookLink" TEXT;
+    END IF;
+  END $$`,
+
+  // facilities_resolved: add cluster_id if missing (live table has NOT NULL on it)
+  `DO $$ BEGIN
+    IF NOT EXISTS (
+      SELECT 1 FROM information_schema.columns
+      WHERE table_schema='app' AND table_name='facilities_resolved' AND column_name='cluster_id'
+    ) THEN
+      ALTER TABLE app.facilities_resolved ADD COLUMN cluster_id TEXT;
+    END IF;
+  END $$`,
+
+  // facilities_resolved: add resolution_outcome if missing (live table has NOT NULL on it).
+  // We keep it in sync with the `outcome` column.
+  `DO $$ BEGIN
+    IF NOT EXISTS (
+      SELECT 1 FROM information_schema.columns
+      WHERE table_schema='app' AND table_name='facilities_resolved' AND column_name='resolution_outcome'
+    ) THEN
+      ALTER TABLE app.facilities_resolved ADD COLUMN resolution_outcome TEXT NOT NULL DEFAULT 'verified';
+    END IF;
+  END $$`,
+
+  // facilities_resolved: drop NOT NULL on every column that the app controls at insert time
+  // so that unknown live-table constraints don't block promotion.
+  // Columns with intentional NOT NULL (id, outcome, resolved_at, resolved_by) are left alone.
+  `DO $$ BEGIN
+    ALTER TABLE app.facilities_resolved
+      ALTER COLUMN cluster_id         DROP NOT NULL,
+      ALTER COLUMN resolution_outcome DROP NOT NULL;
+  EXCEPTION WHEN others THEN NULL; END $$`,
+
+  // resolution_tasks: add UNIQUE constraint on cluster_id if missing
+  `DO $$ BEGIN
+    IF NOT EXISTS (
+      SELECT 1 FROM pg_constraint
+      WHERE conrelid = 'app.resolution_tasks'::regclass
+        AND contype = 'u'
+        AND conname = 'resolution_tasks_cluster_id_key'
+    ) THEN
+      ALTER TABLE app.resolution_tasks ADD CONSTRAINT resolution_tasks_cluster_id_key UNIQUE (cluster_id);
     END IF;
   END $$`,
 

@@ -41,7 +41,7 @@ targets:
       host: https://dbc-6806e9e0-845a.cloud.databricks.com
 
     variables:
-      agents_serving_endpoint_name: databricks-claude-opus-4-8
+      agents_serving_endpoint_name: OpenAI
       postgres_branch: projects/entity-resolution/branches/production
       postgres_database: projects/entity-resolution/branches/production/databases/databricks-postgres
       postgres_project: projects/entity-resolution

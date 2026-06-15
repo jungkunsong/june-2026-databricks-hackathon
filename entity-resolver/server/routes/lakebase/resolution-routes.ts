@@ -156,8 +156,24 @@ export function setupResolutionRoutes(lb: LakebaseHandle, srv: ServerHandle) {
     //   resolved_fields:  { [fieldName]: value }   — the final clean field values to write
     // }
 
+    // GET /api/promote/schema — debug endpoint to inspect live facilities_resolved columns
+    app.get('/api/promote/schema', async (_req, res) => {
+      try {
+        const result = await lb.query(`
+          SELECT column_name, data_type, is_nullable, column_default
+          FROM information_schema.columns
+          WHERE table_schema = 'app' AND table_name = 'facilities_resolved'
+          ORDER BY ordinal_position
+        `);
+        res.json(result.rows);
+      } catch (err) {
+        res.status(500).json({ error: String(err) });
+      }
+    });
+
     app.post('/api/promote', async (req, res) => {
       try {
+        console.log('[promote] body:', JSON.stringify(req.body, null, 2));
         const {
           task_id,
           raw_row_id,
@@ -182,41 +198,58 @@ export function setupResolutionRoutes(lb: LakebaseHandle, srv: ServerHandle) {
           resolved_fields?: Record<string, unknown>;
         };
 
-        if (!task_id || !raw_row_id || !outcome || !reasoning) {
+        if (task_id == null || raw_row_id == null || !outcome || !reasoning) {
           res.status(400).json({ error: 'task_id, raw_row_id, outcome, and reasoning are required' });
+          return;
+        }
+
+        // Coerce numeric fields — JSON body parsing can leave these as strings
+        const taskIdNum = Number(task_id);
+        const rawRowIdNum = Number(raw_row_id);
+        const confidenceNum = confidence != null ? Number(confidence) : null;
+        if (isNaN(taskIdNum) || isNaN(rawRowIdNum)) {
+          res.status(400).json({ error: 'task_id and raw_row_id must be valid integers' });
           return;
         }
 
         const f = resolved_fields;
 
+        // Look up cluster_id from the task row — the live facilities_resolved table
+        // has a NOT NULL constraint on cluster_id so we must supply it.
+        const taskRow = await lb.query<{ cluster_id: string }>(
+          'SELECT cluster_id FROM app.resolution_tasks WHERE id = $1',
+          [taskIdNum],
+        );
+        const cluster_id = taskRow.rows[0]?.cluster_id ?? null;
+
         // ── 1. Write facilities_resolved ──────────────────────────────────
         const resolvedResult = await lb.query(`
           INSERT INTO app.facilities_resolved (
-            task_id, raw_row_id,
+            task_id, raw_row_id, cluster_id,
             unique_id, name, organization_type, "facilityTypeId",
             description, phone_numbers, email, websites, "facebookLink",
             address_line1, address_city, "address_stateOrRegion", "address_zipOrPostcode",
             address_country, latitude, longitude,
             specialties, procedure, equipment, capability, capacity, "numberDoctors",
-            outcome, confidence, resolved_by
+            outcome, resolution_outcome, confidence, resolved_by
           ) VALUES (
-            $1, $2,
-            $3, $4, $5, $6,
-            $7, $8, $9, $10, $11,
-            $12, $13, $14, $15,
-            $16, $17, $18,
-            $19, $20, $21, $22, $23, $24,
-            $25, $26, 'supervisor_agent'
+            $1, $2, $3,
+            $4, $5, $6, $7,
+            $8, $9, $10, $11, $12,
+            $13, $14, $15, $16,
+            $17, $18, $19,
+            $20, $21, $22, $23, $24, $25,
+            $26, $26, $27, 'supervisor_agent'
           )
           RETURNING id
         `, [
-          task_id, raw_row_id,
+          taskIdNum, rawRowIdNum, cluster_id,
           f.unique_id ?? null, f.name ?? facility_name ?? null, f.organization_type ?? null, f.facilityTypeId ?? null,
           f.description ?? null, f.phone_numbers ?? null, f.email ?? null, f.websites ?? null, f.facebookLink ?? null,
           f.address_line1 ?? null, f.address_city ?? null, f.address_stateOrRegion ?? null, f.address_zipOrPostcode ?? null,
           f.address_country ?? null, f.latitude ?? null, f.longitude ?? null,
           f.specialties ?? null, f.procedure ?? null, f.equipment ?? null, f.capability ?? null, f.capacity ?? null, f.numberDoctors ?? null,
-          outcome, confidence ?? null,
+          outcome, confidenceNum,
         ]);
 
         const resolved_id = (resolvedResult.rows[0] as { id: number }).id;
@@ -227,12 +260,12 @@ export function setupResolutionRoutes(lb: LakebaseHandle, srv: ServerHandle) {
             task_id, resolved_id, raw_row_id, facility_name,
             outcome, confidence, reasoning,
             agents_consulted, verifications, human_notes
-          ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+          ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8::text[], $9::jsonb, $10)
         `, [
-          task_id, resolved_id, raw_row_id, facility_name ?? null,
-          outcome, confidence ?? null, reasoning,
-          agents_consulted ?? null,
-          verifications ? JSON.stringify(verifications) : null,
+          taskIdNum, resolved_id, rawRowIdNum, facility_name ?? null,
+          outcome, confidenceNum, reasoning,
+          agents_consulted && agents_consulted.length > 0 ? agents_consulted : null,
+          verifications && verifications.length > 0 ? JSON.stringify(verifications) : null,
           human_notes ?? null,
         ]);
 
@@ -241,12 +274,13 @@ export function setupResolutionRoutes(lb: LakebaseHandle, srv: ServerHandle) {
           UPDATE app.resolution_tasks
           SET status = 'resolved', resolved_at = NOW(), updated_at = NOW()
           WHERE id = $1
-        `, [task_id]);
+        `, [taskIdNum]);
 
-        res.status(201).json({ resolved_id, task_id, outcome });
+        res.status(201).json({ resolved_id, task_id: taskIdNum, outcome });
       } catch (err) {
-        console.error('[promote] error', err);
-        res.status(500).json({ error: 'Failed to promote record' });
+        const msg = err instanceof Error ? err.message : String(err);
+        console.error('[promote] error', msg);
+        res.status(500).json({ error: `Failed to promote record: ${msg}` });
       }
     });
 

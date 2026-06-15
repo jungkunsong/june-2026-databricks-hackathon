@@ -26,9 +26,11 @@ interface AgentChatProps {
   placeholder?: string;
   started?: boolean;
   onStreamingChange?: (streaming: boolean) => void;
+  /** Called whenever the message list changes — lets parent parse proposals */
+  onMessagesChange?: (messages: { role: string; content: string }[]) => void;
 }
 
-export function AgentChat({ agentName, initialMessage, placeholder, started = false, onStreamingChange }: AgentChatProps = {}) {
+export function AgentChat({ agentName, initialMessage, placeholder, started = false, onStreamingChange, onMessagesChange }: AgentChatProps = {}) {
   const { agents, defaultAgent } =
     usePluginClientConfig<AgentsClientConfig>('agents');
   const activeAgent = agentName ?? defaultAgent ?? agents[0] ?? null;
@@ -37,10 +39,18 @@ export function AgentChat({ agentName, initialMessage, placeholder, started = fa
   const [input, setInput] = useState('');
   const [pendingAssistantId, setPendingAssistantId] = useState<string | null>(null);
   const scrollRef = useRef<HTMLDivElement | null>(null);
+  // Tracks whether send() has resolved but we're waiting for the final content sync
+  const sendDoneRef = useRef(false);
+
+  // Notify parent whenever messages change so it can parse proposals
+  useEffect(() => {
+    onMessagesChange?.(messages.map((m) => ({ role: m.role, content: m.content })));
+  }, [messages, onMessagesChange]);
 
   // Use a ref so the seed effect always sees the latest `send` without
   // needing it in the dependency array (avoids re-triggering on every render).
   const sendRef = useRef<((msg: string) => Promise<void>) | null>(null);
+  const resetRef = useRef<(() => void) | null>(null);
   // Guard: fire the seed message exactly once
   const seededRef = useRef(false);
 
@@ -62,13 +72,14 @@ export function AgentChat({ agentName, initialMessage, placeholder, started = fa
     }
   };
 
-  const { content, isStreaming, error, send } = useAgentChat({
+  const { content, isStreaming, error, send, reset } = useAgentChat({
     agent: activeAgent ?? '',
     onEvent: handleEvent,
   });
 
-  // Keep ref in sync with the latest send function
+  // Keep refs in sync with the latest send/reset functions
   sendRef.current = send;
+  resetRef.current = reset;
 
   // Sync streaming state to parent
   useEffect(() => {
@@ -88,6 +99,11 @@ export function AgentChat({ agentName, initialMessage, placeholder, started = fa
         m.id === pendingAssistantId ? { ...m, content } : m,
       ),
     );
+    // If send() already resolved, clear the pending ID now that content is synced
+    if (sendDoneRef.current) {
+      sendDoneRef.current = false;
+      setPendingAssistantId(null);
+    }
   }, [content, pendingAssistantId]);
 
   // Fire the seed message once — runs when started=true AND activeAgent is known
@@ -99,13 +115,18 @@ export function AgentChat({ agentName, initialMessage, placeholder, started = fa
 
     seededRef.current = true;
     const assistantId = `a-seed-${Date.now()}`;
+
+    // Reset the thread so every verification starts fresh — prevents the
+    // model from losing track of its tools on a long accumulated thread.
+    resetRef.current?.();
+
     setMessages([
       { id: `u-seed-${Date.now()}`, role: 'user', content: msg },
       { id: assistantId, role: 'assistant', content: '' },
     ]);
     setPendingAssistantId(assistantId);
 
-    void sendRef.current!(msg).then(() => setPendingAssistantId(null));
+    void sendRef.current!(msg).then(() => { sendDoneRef.current = true; });
   // Only re-evaluate when the things that gate the send change
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [started, activeAgent, initialMessage]);
@@ -123,7 +144,7 @@ export function AgentChat({ agentName, initialMessage, placeholder, started = fa
     ]);
     setPendingAssistantId(assistantId);
     await send(message);
-    setPendingAssistantId(null);
+    sendDoneRef.current = true;
   };
 
   return (

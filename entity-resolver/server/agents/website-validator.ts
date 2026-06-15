@@ -16,11 +16,12 @@ import { z } from 'zod';
  */
 export const websiteValidatorAgent = createAgent({
   name: 'website-validator',
+  model: 'OpenAI',
   instructions: [
     'You are the Website Validator sub-agent.',
-    'When given facility records, call `check_website` for every URL found in the `websites` field.',
-    'After all checks complete, return a structured markdown table and a JSON summary',
-    'that classifies each URL and flags duplicate domains and domain mismatches.',
+    'When given a websites value, call `check_website` once for the provided URL.',
+    'Return ONLY a single compact JSON object — no markdown, no tables, no prose:',
+    '{"status":"reachable|unreachable|redirect","url":"<url>","note":"<one sentence>"}',
   ].join(' '),
   tools: {
     check_website: tool({
