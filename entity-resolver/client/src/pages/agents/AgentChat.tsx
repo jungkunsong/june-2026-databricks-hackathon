@@ -20,18 +20,11 @@ interface AgentsClientConfig {
 }
 
 interface AgentChatProps {
-  /** Override which agent to talk to (defaults to the plugin's defaultAgent) */
   agentName?: string;
-  /** Seed message sent automatically on mount — only fires when `started` is true */
+  /** Seed message sent automatically on mount */
   initialMessage?: string;
-  /** Input placeholder text */
   placeholder?: string;
-  /**
-   * When false (default), renders the idle "not started" state.
-   * Set to true after the user explicitly clicks "AI Agent Verification".
-   */
   started?: boolean;
-  /** Called whenever the streaming state changes — lets the parent show/hide a spinner */
   onStreamingChange?: (streaming: boolean) => void;
 }
 
@@ -43,9 +36,13 @@ export function AgentChat({ agentName, initialMessage, placeholder, started = fa
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState('');
   const [pendingAssistantId, setPendingAssistantId] = useState<string | null>(null);
-  // Track whether we've already fired the initial seed message
-  const [seeded, setSeeded] = useState(false);
   const scrollRef = useRef<HTMLDivElement | null>(null);
+
+  // Use a ref so the seed effect always sees the latest `send` without
+  // needing it in the dependency array (avoids re-triggering on every render).
+  const sendRef = useRef<((msg: string) => Promise<void>) | null>(null);
+  // Guard: fire the seed message exactly once
+  const seededRef = useRef(false);
 
   const handleEvent = (event: AgentChatEvent) => {
     if (
@@ -70,6 +67,20 @@ export function AgentChat({ agentName, initialMessage, placeholder, started = fa
     onEvent: handleEvent,
   });
 
+  // Keep ref in sync with the latest send function
+  sendRef.current = send;
+
+  // Sync streaming state to parent
+  useEffect(() => {
+    onStreamingChange?.(isStreaming);
+  }, [isStreaming, onStreamingChange]);
+
+  // Scroll to bottom on new content
+  useEffect(() => {
+    scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight });
+  }, [messages, content]);
+
+  // Update the in-progress assistant bubble with streamed content
   useEffect(() => {
     if (!pendingAssistantId) return;
     setMessages((prev) =>
@@ -79,28 +90,25 @@ export function AgentChat({ agentName, initialMessage, placeholder, started = fa
     );
   }, [content, pendingAssistantId]);
 
+  // Fire the seed message once — runs when started=true AND activeAgent is known
+  // Uses refs so it doesn't re-fire if send/initialMessage identity changes.
   useEffect(() => {
-    scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight });
-  }, [messages, content]);
+    if (!started || !activeAgent || seededRef.current) return;
+    const msg = initialMessage?.trim();
+    if (!msg) return;
 
-  // Notify parent when streaming state changes
-  useEffect(() => {
-    onStreamingChange?.(isStreaming);
-  }, [isStreaming, onStreamingChange]);
-
-  // Auto-send the initial message only once `started` flips to true
-  useEffect(() => {
-    if (!started || !initialMessage || seeded || !activeAgent || isStreaming) return;
-    setSeeded(true);
-    const assistantId = `a-${Date.now()}`;
+    seededRef.current = true;
+    const assistantId = `a-seed-${Date.now()}`;
     setMessages([
-      { id: `u-${Date.now()}`, role: 'user', content: initialMessage },
+      { id: `u-seed-${Date.now()}`, role: 'user', content: msg },
       { id: assistantId, role: 'assistant', content: '' },
     ]);
     setPendingAssistantId(assistantId);
-    void send(initialMessage).then(() => setPendingAssistantId(null));
+
+    void sendRef.current!(msg).then(() => setPendingAssistantId(null));
+  // Only re-evaluate when the things that gate the send change
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [started, activeAgent]);
+  }, [started, activeAgent, initialMessage]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -121,48 +129,27 @@ export function AgentChat({ agentName, initialMessage, placeholder, started = fa
   return (
     <div className="flex h-full flex-col">
       {/* Messages */}
-      <div
-        ref={scrollRef}
-        className="flex-1 overflow-y-auto space-y-3 p-4"
-      >
+      <div ref={scrollRef} className="flex-1 overflow-y-auto space-y-3 p-4">
         {messages.length === 0 && (
           <div className="flex flex-col items-center justify-center h-full gap-2 text-center">
             <Bot className="h-8 w-8 text-muted-foreground/40" />
-            {started ? (
-              <p className="text-xs text-muted-foreground">
-                Supervisor Agent is initialising…
-              </p>
-            ) : (
-              <p className="text-xs text-muted-foreground">
-                The Supervisor Agent is ready.<br />
-                Describe what you'd like to investigate.
-              </p>
-            )}
+            <p className="text-xs text-muted-foreground">
+              {started ? 'Supervisor Agent is initialising…' : 'The Supervisor Agent is ready.'}
+            </p>
           </div>
         )}
         {messages.map((m) => {
-          // Sub-agent tool calls are internal — never shown to the human reviewer.
-          // Only Supervisor-approved assistant messages and user messages are rendered.
           if (m.role === 'tool') return null;
           const isUser = m.role === 'user';
           return (
-            <div
-              key={m.id}
-              className={`flex items-start gap-2 ${isUser ? 'flex-row-reverse' : ''}`}
-            >
+            <div key={m.id} className={`flex items-start gap-2 ${isUser ? 'flex-row-reverse' : ''}`}>
               <div className={`flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-full ${isUser ? 'bg-[#FF3621]' : 'bg-[#0B2026]'}`}>
                 {isUser
                   ? <User className="h-3 w-3 text-white" />
                   : <Bot className="h-3 w-3 text-white" />
                 }
               </div>
-              <div
-                className={`max-w-[85%] rounded-lg px-3 py-2 text-sm ${
-                  isUser
-                    ? 'bg-[#FF3621]/10 text-[#0B2026]'
-                    : 'bg-[#EEEDE9] text-[#0B2026]'
-                }`}
-              >
+              <div className={`max-w-[85%] rounded-lg px-3 py-2 text-sm ${isUser ? 'bg-[#FF3621]/10 text-[#0B2026]' : 'bg-[#EEEDE9] text-[#0B2026]'}`}>
                 <div className="whitespace-pre-wrap leading-relaxed">
                   {m.content || (isStreaming && m.id === pendingAssistantId ? (
                     <span className="flex items-center gap-1 text-muted-foreground">
@@ -176,20 +163,18 @@ export function AgentChat({ agentName, initialMessage, placeholder, started = fa
         })}
       </div>
 
-      {/* Error */}
       {error && (
         <div className="mx-4 mb-2 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">
           {error}
         </div>
       )}
 
-      {/* Input — hidden until started */}
       {started && (
         <form onSubmit={handleSubmit} className="flex gap-2 border-t border-border p-3">
           <Input
             value={input}
             onChange={(e) => setInput(e.target.value)}
-            placeholder={placeholder ?? (activeAgent ? `Reply to Supervisor…` : 'No agents registered')}
+            placeholder={placeholder ?? (activeAgent ? 'Reply to Supervisor…' : 'No agents registered')}
             disabled={!activeAgent || isStreaming}
             className="flex-1 text-sm"
           />
@@ -198,11 +183,10 @@ export function AgentChat({ agentName, initialMessage, placeholder, started = fa
             disabled={!input.trim() || !activeAgent || isStreaming}
             className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-md bg-[#FF3621] text-white hover:bg-[#e02e1a] disabled:opacity-40"
           >
-            {isStreaming ? (
-              <Loader2 className="h-4 w-4 animate-spin" />
-            ) : (
-              <Send className="h-4 w-4" />
-            )}
+            {isStreaming
+              ? <Loader2 className="h-4 w-4 animate-spin" />
+              : <Send className="h-4 w-4" />
+            }
           </button>
         </form>
       )}
