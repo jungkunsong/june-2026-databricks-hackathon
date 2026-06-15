@@ -8,6 +8,7 @@
 --   2. invalid-unique-id-format.md   — filter out 88 rows where unique_id is not a valid UUID
 --   3. null-as-string.md             — replace literal 'null' strings with proper SQL NULL (38 columns)
 --   4. duplicate-array-column-entries.md — deduplicate entries within JSON array string columns
+--   5. farmacy-typo.md               — normalize 'farmacy' → 'pharmacy' in facilityTypeId (10 rows)
 -- =============================================================================
 
 CREATE OR REPLACE TABLE workspace.default.facilities AS
@@ -92,6 +93,8 @@ null_fixed AS (
 -- Fix #4 (duplicate-array-column-entries.md): Deduplicate entries within JSON
 -- array string columns by parsing → array_distinct() → re-serializing to JSON.
 -- NULL and empty array '[]' values are passed through unchanged.
+
+-- Fix #5 (farmacy-typo.md): Normalize 'farmacy' → 'pharmacy' in facilityTypeId (10 rows)
 SELECT
   unique_id,
   CASE WHEN source_types      IS NULL OR source_types      = '[]' THEN source_types      ELSE to_json(array_distinct(from_json(source_types,      'array<string>'))) END AS source_types,
@@ -117,7 +120,7 @@ SELECT
   address_country,
   address_countryCode,
   CASE WHEN countries         IS NULL OR countries         = '[]' THEN countries         ELSE to_json(array_distinct(from_json(countries,         'array<string>'))) END AS countries,
-  facilityTypeId,
+  CASE WHEN facilityTypeId = 'farmacy' THEN 'pharmacy' ELSE facilityTypeId END AS facilityTypeId,
   operatorTypeId,
   CASE WHEN affiliationTypeIds IS NULL OR affiliationTypeIds = '[]' THEN affiliationTypeIds ELSE to_json(array_distinct(from_json(affiliationTypeIds, 'array<string>'))) END AS affiliationTypeIds,
   description,
