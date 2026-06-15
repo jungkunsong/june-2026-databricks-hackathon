@@ -1,4 +1,4 @@
-import type { AppKitWithLakebase } from '../../types';
+import type { LakebaseHandle } from '../../plugin-handles';
 
 export const SCHEMA_SQL = `
   CREATE SCHEMA IF NOT EXISTS app;
@@ -21,7 +21,7 @@ export const SCHEMA_SQL = `
     golden_record   JSONB,          -- the canonical merged record
     confidence      NUMERIC(4,3),   -- 0.000 to 1.000
     reasoning       TEXT,
-    decided_by      TEXT NOT NULL DEFAULT 'human',  -- human | supervisor
+    decided_by      TEXT NOT NULL DEFAULT 'human',
     created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
   );
 
@@ -47,7 +47,7 @@ export const SCHEMA_SQL = `
   );
 `;
 
-export async function initSchema(appkit: AppKitWithLakebase) {
-  await appkit.lakebase.query(SCHEMA_SQL);
+export async function initSchema(lb: LakebaseHandle) {
+  await lb.query(SCHEMA_SQL);
   console.log('[schema] entity-resolver schema initialized');
 }

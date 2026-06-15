@@ -4,7 +4,7 @@ import { helper } from './agents/helper';
 import { initSchema } from './routes/lakebase/schema';
 import { setupResolutionRoutes } from './routes/lakebase/resolution-routes';
 import { setupFacilitiesRoutes } from './routes/facilities-routes';
-import type { AppKitWithLakebase } from './types';
+import type { LakebaseHandle, ServerHandle } from './plugin-handles';
 
 // Databricks OAuth token for SQL warehouse queries (refreshed per-request)
 async function getDatabricksToken(): Promise<string> {
@@ -32,14 +32,18 @@ createApp({
     server(),
   ],
   async onPluginsReady(appkit) {
+    // Extract typed handles directly from the PluginMap — no double assertions needed.
+    const lb = appkit.lakebase as LakebaseHandle;
+    const srv = appkit.server as ServerHandle;
+
     // Initialize Lakebase schema
-    await initSchema(appkit as unknown as AppKitWithLakebase);
+    await initSchema(lb);
 
     // Register Lakebase-backed resolution routes
-    setupResolutionRoutes(appkit as unknown as AppKitWithLakebase);
+    setupResolutionRoutes(lb, srv);
 
     // Register SQL warehouse-backed facilities routes
-    (appkit as unknown as AppKitWithLakebase).server.extend((app) => {
+    srv.extend((app) => {
       setupFacilitiesRoutes(app, getDatabricksToken);
     });
   },

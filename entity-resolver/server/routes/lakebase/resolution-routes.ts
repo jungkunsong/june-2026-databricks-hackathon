@@ -1,7 +1,7 @@
-import type { AppKitWithLakebase, ResolutionTask, Decision, Message } from '../../types';
+import type { LakebaseHandle, ServerHandle } from '../../plugin-handles';
 
-export function setupResolutionRoutes(appkit: AppKitWithLakebase) {
-  appkit.server.extend((app) => {
+export function setupResolutionRoutes(lb: LakebaseHandle, srv: ServerHandle) {
+  srv.extend((app) => {
 
     // ── Tasks ──────────────────────────────────────────────────────────────
 
@@ -15,7 +15,7 @@ export function setupResolutionRoutes(appkit: AppKitWithLakebase) {
           params.push(status);
           where = `WHERE t.status = $1`;
         }
-        const result = await appkit.lakebase.query(`
+        const result = await lb.query(`
           SELECT t.*,
                  COUNT(d.id) AS decision_count,
                  COUNT(m.id) AS message_count
@@ -38,12 +38,12 @@ export function setupResolutionRoutes(appkit: AppKitWithLakebase) {
       try {
         const id = parseInt(req.params.id, 10);
         const [taskResult, messagesResult, decisionResult] = await Promise.all([
-          appkit.lakebase.query('SELECT * FROM app.resolution_tasks WHERE id = $1', [id]),
-          appkit.lakebase.query(
+          lb.query('SELECT * FROM app.resolution_tasks WHERE id = $1', [id]),
+          lb.query(
             'SELECT * FROM app.messages WHERE task_id = $1 ORDER BY created_at ASC',
             [id],
           ),
-          appkit.lakebase.query(
+          lb.query(
             'SELECT * FROM app.decisions WHERE task_id = $1 ORDER BY created_at DESC LIMIT 1',
             [id],
           ),
@@ -53,9 +53,9 @@ export function setupResolutionRoutes(appkit: AppKitWithLakebase) {
           return;
         }
         res.json({
-          task: taskResult.rows[0] as unknown as ResolutionTask,
-          messages: messagesResult.rows as unknown as Message[],
-          latest_decision: (decisionResult.rows[0] as unknown as Decision) ?? null,
+          task: taskResult.rows[0],
+          messages: messagesResult.rows,
+          latest_decision: decisionResult.rows[0] ?? null,
         });
       } catch (err) {
         console.error('[tasks] get error', err);
@@ -71,7 +71,7 @@ export function setupResolutionRoutes(appkit: AppKitWithLakebase) {
           res.status(400).json({ error: 'cluster_id required' });
           return;
         }
-        const result = await appkit.lakebase.query(`
+        const result = await lb.query(`
           INSERT INTO app.resolution_tasks (cluster_id, status, assigned_at)
           VALUES ($1, 'in_progress', NOW())
           ON CONFLICT (cluster_id) DO UPDATE
@@ -91,7 +91,7 @@ export function setupResolutionRoutes(appkit: AppKitWithLakebase) {
         const id = parseInt(req.params.id, 10);
         const { status } = req.body as { status: string };
         const resolved_at = status === 'resolved' ? 'NOW()' : 'NULL';
-        const result = await appkit.lakebase.query(`
+        const result = await lb.query(`
           UPDATE app.resolution_tasks
           SET status = $1,
               resolved_at = ${resolved_at},
@@ -122,7 +122,7 @@ export function setupResolutionRoutes(appkit: AppKitWithLakebase) {
           content: string;
           metadata?: Record<string, unknown>;
         };
-        const result = await appkit.lakebase.query(`
+        const result = await lb.query(`
           INSERT INTO app.messages (task_id, role, agent_name, content, metadata)
           VALUES ($1, $2, $3, $4, $5)
           RETURNING *
@@ -150,7 +150,7 @@ export function setupResolutionRoutes(appkit: AppKitWithLakebase) {
             decided_by?: string;
           };
 
-        const result = await appkit.lakebase.query(`
+        const result = await lb.query(`
           INSERT INTO app.decisions
             (task_id, cluster_id, outcome, golden_record, confidence, reasoning, decided_by)
           VALUES ($1, $2, $3, $4, $5, $6, $7)
@@ -166,7 +166,7 @@ export function setupResolutionRoutes(appkit: AppKitWithLakebase) {
         ]);
 
         // Mark task resolved
-        await appkit.lakebase.query(`
+        await lb.query(`
           UPDATE app.resolution_tasks
           SET status = 'resolved', resolved_at = NOW(), updated_at = NOW()
           WHERE id = $1
@@ -182,7 +182,7 @@ export function setupResolutionRoutes(appkit: AppKitWithLakebase) {
     // GET /api/decisions — all decisions (audit log)
     app.get('/api/decisions', async (_req, res) => {
       try {
-        const result = await appkit.lakebase.query(`
+        const result = await lb.query(`
           SELECT d.*, t.cluster_id
           FROM app.decisions d
           JOIN app.resolution_tasks t ON t.id = d.task_id
@@ -208,7 +208,7 @@ export function setupResolutionRoutes(appkit: AppKitWithLakebase) {
           old_value?: string;
           new_value: string;
         };
-        const result = await appkit.lakebase.query(`
+        const result = await lb.query(`
           INSERT INTO app.entity_overrides (task_id, cluster_id, field_name, old_value, new_value)
           VALUES ($1, $2, $3, $4, $5)
           RETURNING *
