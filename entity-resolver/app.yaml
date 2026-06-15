@@ -4,7 +4,3 @@ env:
     valueFrom: agents-serving-endpoint
   - name: LAKEBASE_ENDPOINT
     valueFrom: postgres
-  - name: DATABRICKS_WAREHOUSE_ID
-    value: 1f9ab9aa6bd3d177
-  - name: DATABRICKS_HOST
-    value: https://dbc-6806e9e0-845a.cloud.databricks.com

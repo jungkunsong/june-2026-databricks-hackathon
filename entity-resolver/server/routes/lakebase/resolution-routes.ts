@@ -196,6 +196,143 @@ export function setupResolutionRoutes(lb: LakebaseHandle, srv: ServerHandle) {
       }
     });
 
+    // ── Resolved records ───────────────────────────────────────────────────
+
+    // POST /api/tasks/:id/resolved — supervisor agent writes the golden record
+    app.post('/api/tasks/:id/resolved', async (req, res) => {
+      try {
+        const task_id = parseInt(req.params.id, 10);
+        const {
+          cluster_id, unique_id, name, organization_type, facilityTypeId,
+          description, phone_numbers, email, websites,
+          address_line1, address_city, address_stateOrRegion, address_zipOrPostcode,
+          address_country, latitude, longitude,
+          specialties, procedure, equipment, capability, capacity, numberDoctors,
+          source_row_ids, source_types, resolution_outcome, confidence, resolved_by,
+        } = req.body as Record<string, unknown>;
+
+        const result = await lb.query(`
+          INSERT INTO app.facilities_resolved (
+            task_id, cluster_id, unique_id, name, organization_type, "facilityTypeId",
+            description, phone_numbers, email, websites,
+            address_line1, address_city, "address_stateOrRegion", "address_zipOrPostcode",
+            address_country, latitude, longitude,
+            specialties, procedure, equipment, capability, capacity, "numberDoctors",
+            source_row_ids, source_types, resolution_outcome, confidence, resolved_by
+          ) VALUES (
+            $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,
+            $11,$12,$13,$14,$15,$16,$17,$18,$19,$20,
+            $21,$22,$23,$24,$25,$26,$27,$28
+          )
+          RETURNING *
+        `, [
+          task_id, cluster_id, unique_id, name, organization_type, facilityTypeId,
+          description, phone_numbers, email, websites,
+          address_line1, address_city, address_stateOrRegion, address_zipOrPostcode,
+          address_country, latitude ?? null, longitude ?? null,
+          specialties, procedure, equipment, capability, capacity, numberDoctors,
+          source_row_ids ?? null, source_types,
+          resolution_outcome, confidence ?? null, resolved_by ?? 'supervisor_agent',
+        ]);
+        res.status(201).json(result.rows[0]);
+      } catch (err) {
+        console.error('[resolved] create error', err);
+        res.status(500).json({ error: 'Failed to save resolved record' });
+      }
+    });
+
+    // GET /api/resolved — all golden records
+    app.get('/api/resolved', async (_req, res) => {
+      try {
+        const result = await lb.query(`
+          SELECT * FROM app.facilities_resolved
+          ORDER BY resolved_at DESC
+          LIMIT 500
+        `);
+        res.json(result.rows);
+      } catch (err) {
+        console.error('[resolved] list error', err);
+        res.status(500).json({ error: 'Failed to list resolved records' });
+      }
+    });
+
+    // ── Decision log ───────────────────────────────────────────────────────
+
+    // POST /api/tasks/:id/decision-log — supervisor agent appends a log entry
+    app.post('/api/tasks/:id/decision-log', async (req, res) => {
+      try {
+        const task_id = parseInt(req.params.id, 10);
+        const {
+          cluster_id, agent_name, decision_type, decision_outcome,
+          confidence, reasoning, evidence, raw_row_ids, resolved_id,
+        } = req.body as Record<string, unknown>;
+
+        const result = await lb.query(`
+          INSERT INTO app.decision_log (
+            task_id, cluster_id, agent_name,
+            decision_type, decision_outcome, confidence,
+            reasoning, evidence, raw_row_ids, resolved_id
+          ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
+          RETURNING *
+        `, [
+          task_id, cluster_id, agent_name,
+          decision_type, decision_outcome, confidence ?? null,
+          reasoning, evidence ? JSON.stringify(evidence) : null,
+          raw_row_ids ?? null, resolved_id ?? null,
+        ]);
+        res.status(201).json(result.rows[0]);
+      } catch (err) {
+        console.error('[decision-log] create error', err);
+        res.status(500).json({ error: 'Failed to write decision log' });
+      }
+    });
+
+    // PATCH /api/decision-log/:id — human reviewer approves/rejects/modifies
+    app.patch('/api/decision-log/:id', async (req, res) => {
+      try {
+        const id = parseInt(req.params.id, 10);
+        const { human_action, human_notes } = req.body as {
+          human_action: 'approved' | 'rejected' | 'modified';
+          human_notes?: string;
+        };
+        const result = await lb.query(`
+          UPDATE app.decision_log
+          SET human_action = $1,
+              human_notes  = $2,
+              reviewed_at  = NOW()
+          WHERE id = $3
+          RETURNING *
+        `, [human_action, human_notes ?? null, id]);
+        if (result.rows.length === 0) { res.status(404).json({ error: 'Log entry not found' }); return; }
+        res.json(result.rows[0]);
+      } catch (err) {
+        console.error('[decision-log] review error', err);
+        res.status(500).json({ error: 'Failed to update decision log' });
+      }
+    });
+
+    // GET /api/decision-log — full audit trail
+    app.get('/api/decision-log', async (req, res) => {
+      try {
+        const { cluster_id, task_id } = req.query;
+        const params: unknown[] = [];
+        const conditions: string[] = [];
+        if (cluster_id) { params.push(cluster_id); conditions.push(`cluster_id = $${params.length}`); }
+        if (task_id)    { params.push(task_id);    conditions.push(`task_id = $${params.length}`); }
+        const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
+        const result = await lb.query(`
+          SELECT * FROM app.decision_log
+          ${where}
+          ORDER BY created_at DESC
+          LIMIT 500
+        `, params);
+        res.json(result.rows);
+      } catch (err) {
+        console.error('[decision-log] list error', err);
+        res.status(500).json({ error: 'Failed to list decision log' });
+      }
+    });
+
     // ── Entity overrides ───────────────────────────────────────────────────
 
     // POST /api/tasks/:id/overrides
