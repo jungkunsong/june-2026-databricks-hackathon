@@ -31,9 +31,11 @@ interface AgentChatProps {
    * Set to true after the user explicitly clicks "AI Agent Verification".
    */
   started?: boolean;
+  /** Called whenever the streaming state changes — lets the parent show/hide a spinner */
+  onStreamingChange?: (streaming: boolean) => void;
 }
 
-export function AgentChat({ agentName, initialMessage, placeholder, started = false }: AgentChatProps = {}) {
+export function AgentChat({ agentName, initialMessage, placeholder, started = false, onStreamingChange }: AgentChatProps = {}) {
   const { agents, defaultAgent } =
     usePluginClientConfig<AgentsClientConfig>('agents');
   const activeAgent = agentName ?? defaultAgent ?? agents[0] ?? null;
@@ -80,6 +82,11 @@ export function AgentChat({ agentName, initialMessage, placeholder, started = fa
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight });
   }, [messages, content]);
+
+  // Notify parent when streaming state changes
+  useEffect(() => {
+    onStreamingChange?.(isStreaming);
+  }, [isStreaming, onStreamingChange]);
 
   // Auto-send the initial message only once `started` flips to true
   useEffect(() => {

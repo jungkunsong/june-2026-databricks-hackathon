@@ -82,6 +82,7 @@ export function ResolvePage() {
   // Whether the user has clicked "AI Agent Verification"
   const [agentStarted, setAgentStarted] = useState(false);
   const [starting, setStarting] = useState(false);
+  const [agentStreaming, setAgentStreaming] = useState(false);
 
   const [initialMessage, setInitialMessage] = useState<string>('');
 
@@ -239,10 +240,15 @@ export function ResolvePage() {
               <Bot className="h-4 w-4" />
               Supervisor Agent
             </span>
-            {agentStarted && (
+            {agentStarted && agentStreaming && (
               <span className="flex items-center gap-1.5 text-xs text-blue-600 font-medium">
                 <Loader2 className="h-3 w-3 animate-spin" />
                 Verifying…
+              </span>
+            )}
+            {agentStarted && !agentStreaming && (
+              <span className="text-xs text-green-600 font-medium">
+                Ready
               </span>
             )}
           </div>
@@ -283,6 +289,7 @@ export function ResolvePage() {
                 initialMessage={initialMessage}
                 started={agentStarted}
                 placeholder="Reply to Supervisor…"
+                onStreamingChange={setAgentStreaming}
               />
             </div>
           )}

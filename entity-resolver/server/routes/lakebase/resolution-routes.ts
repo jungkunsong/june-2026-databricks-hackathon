@@ -69,12 +69,16 @@ export function setupResolutionRoutes(lb: LakebaseHandle, srv: ServerHandle) {
         const { row_id: raw_row_id, name: facility_name } = lookup.rows[0];
 
         const result = await lb.query(`
-          INSERT INTO app.resolution_tasks (raw_row_id, facility_name, status, assigned_at)
-          VALUES ($1, $2, 'in_progress', NOW())
-          ON CONFLICT (raw_row_id) DO UPDATE
-            SET status = 'in_progress', assigned_at = NOW(), updated_at = NOW()
+          INSERT INTO app.resolution_tasks (cluster_id, raw_row_id, facility_name, status, assigned_at)
+          VALUES ($1, $2, $3, 'in_progress', NOW())
+          ON CONFLICT (cluster_id) DO UPDATE
+            SET raw_row_id    = EXCLUDED.raw_row_id,
+                facility_name = EXCLUDED.facility_name,
+                status        = 'in_progress',
+                assigned_at   = NOW(),
+                updated_at    = NOW()
           RETURNING *
-        `, [raw_row_id, facility_name ?? null]);
+        `, [cluster_id, raw_row_id, facility_name ?? null]);
         res.status(201).json(result.rows[0]);
       } catch (err) {
         console.error('[tasks] create error', err);

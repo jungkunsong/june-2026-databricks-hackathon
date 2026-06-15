@@ -11,13 +11,12 @@ import type { LakebaseHandle } from '../../plugin-handles';
 
 const APP_TABLES_SQL = [
   // ── Workflow state ────────────────────────────────────────────────────────
-  // One row per raw facility record under review.
-  // Keyed on raw_row_id (the row_id from facilities_raw).
   `CREATE TABLE IF NOT EXISTS app.resolution_tasks (
     id            SERIAL PRIMARY KEY,
-    raw_row_id    INTEGER NOT NULL UNIQUE,   -- row_id from facilities_raw
-    facility_name TEXT,                      -- denormalised for display
-    status        TEXT NOT NULL DEFAULT 'pending',  -- pending | in_progress | resolved | skipped
+    raw_row_id    INTEGER,
+    facility_name TEXT,
+    cluster_id    TEXT,
+    status        TEXT NOT NULL DEFAULT 'pending',
     assigned_at   TIMESTAMPTZ,
     resolved_at   TIMESTAMPTZ,
     created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -25,13 +24,10 @@ const APP_TABLES_SQL = [
   )`,
 
   // ── Resolved output ───────────────────────────────────────────────────────
-  // One row per promoted facility record (golden record).
-  // Written atomically with decision_log by POST /api/promote.
   `CREATE TABLE IF NOT EXISTS app.facilities_resolved (
     id                      SERIAL PRIMARY KEY,
     task_id                 INTEGER REFERENCES app.resolution_tasks(id),
-    raw_row_id              INTEGER NOT NULL,   -- source row from facilities_raw
-    -- Verified / corrected field values
+    raw_row_id              INTEGER,
     unique_id               TEXT,
     name                    TEXT,
     organization_type       TEXT,
@@ -40,7 +36,7 @@ const APP_TABLES_SQL = [
     phone_numbers           TEXT,
     email                   TEXT,
     websites                TEXT,
-    facebookLink            TEXT,
+    "facebookLink"          TEXT,
     address_line1           TEXT,
     address_city            TEXT,
     "address_stateOrRegion" TEXT,
@@ -54,43 +50,33 @@ const APP_TABLES_SQL = [
     capability              TEXT,
     capacity                TEXT,
     "numberDoctors"         TEXT,
-    -- Resolution metadata
-    outcome                 TEXT NOT NULL,  -- verified | corrected | partial | deferred
+    outcome                 TEXT NOT NULL DEFAULT 'verified',
     confidence              NUMERIC(4,3),
     resolved_at             TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     resolved_by             TEXT NOT NULL DEFAULT 'supervisor_agent'
   )`,
 
   // ── Decision log ──────────────────────────────────────────────────────────
-  // Append-only audit trail written by the supervisor agent at promotion time.
-  // One row per promoted record. Captures the full reasoning chain.
   `CREATE TABLE IF NOT EXISTS app.decision_log (
     id                SERIAL PRIMARY KEY,
-    task_id           INTEGER NOT NULL REFERENCES app.resolution_tasks(id),
+    task_id           INTEGER REFERENCES app.resolution_tasks(id),
     resolved_id       INTEGER REFERENCES app.facilities_resolved(id),
-    raw_row_id        INTEGER NOT NULL,
+    raw_row_id        INTEGER,
     facility_name     TEXT,
-    -- Promotion outcome
-    outcome           TEXT NOT NULL,   -- verified | corrected | partial | deferred
+    outcome           TEXT NOT NULL DEFAULT 'verified',
     confidence        NUMERIC(4,3),
-    -- Supervisor reasoning (prose summary)
-    reasoning         TEXT NOT NULL,
-    -- Which sub-agents ran
+    reasoning         TEXT NOT NULL DEFAULT '',
     agents_consulted  TEXT[],
-    -- Per-field verification results
-    -- Array of { field, status, old_value, new_value, agent, supervisor_reasoning }
     verifications     JSONB,
-    -- Human reviewer input
     human_notes       TEXT,
     decided_at        TIMESTAMPTZ NOT NULL DEFAULT NOW()
   )`,
 
   // ── Entity overrides ──────────────────────────────────────────────────────
-  // Field-level corrections applied by the reviewer or agents before promotion.
   `CREATE TABLE IF NOT EXISTS app.entity_overrides (
     id          SERIAL PRIMARY KEY,
-    task_id     INTEGER NOT NULL REFERENCES app.resolution_tasks(id),
-    raw_row_id  INTEGER NOT NULL,
+    task_id     INTEGER REFERENCES app.resolution_tasks(id),
+    raw_row_id  INTEGER,
     field_name  TEXT NOT NULL,
     old_value   TEXT,
     new_value   TEXT NOT NULL,
@@ -99,7 +85,62 @@ const APP_TABLES_SQL = [
   )`,
 ];
 
+// Migration: add columns to existing tables that were created with the old schema.
+// Each statement is wrapped in a DO block so it's a no-op if the column already exists.
+const MIGRATION_SQL = [
+  // resolution_tasks: add raw_row_id + facility_name if missing
+  `DO $$ BEGIN
+    IF NOT EXISTS (
+      SELECT 1 FROM information_schema.columns
+      WHERE table_schema='app' AND table_name='resolution_tasks' AND column_name='raw_row_id'
+    ) THEN
+      ALTER TABLE app.resolution_tasks ADD COLUMN raw_row_id INTEGER;
+    END IF;
+  END $$`,
+  `DO $$ BEGIN
+    IF NOT EXISTS (
+      SELECT 1 FROM information_schema.columns
+      WHERE table_schema='app' AND table_name='resolution_tasks' AND column_name='facility_name'
+    ) THEN
+      ALTER TABLE app.resolution_tasks ADD COLUMN facility_name TEXT;
+    END IF;
+  END $$`,
+
+  // facilities_resolved: add outcome + facebookLink if missing
+  `DO $$ BEGIN
+    IF NOT EXISTS (
+      SELECT 1 FROM information_schema.columns
+      WHERE table_schema='app' AND table_name='facilities_resolved' AND column_name='outcome'
+    ) THEN
+      ALTER TABLE app.facilities_resolved ADD COLUMN outcome TEXT NOT NULL DEFAULT 'verified';
+    END IF;
+  END $$`,
+  `DO $$ BEGIN
+    IF NOT EXISTS (
+      SELECT 1 FROM information_schema.columns
+      WHERE table_schema='app' AND table_name='facilities_resolved' AND column_name='facebookLink'
+    ) THEN
+      ALTER TABLE app.facilities_resolved ADD COLUMN "facebookLink" TEXT;
+    END IF;
+  END $$`,
+
+  // decision_log: rebuild if it has the old cluster-based schema (check for decided_at)
+  `DO $$ BEGIN
+    IF NOT EXISTS (
+      SELECT 1 FROM information_schema.columns
+      WHERE table_schema='app' AND table_name='decision_log' AND column_name='decided_at'
+    ) THEN
+      DROP TABLE IF EXISTS app.decision_log CASCADE;
+    END IF;
+  END $$`,
+];
+
 export async function initSchema(lb: LakebaseHandle) {
+  // Run migrations first (safe no-ops if columns already exist)
+  for (const sql of MIGRATION_SQL) {
+    await lb.query(sql);
+  }
+  // Then create any missing tables
   for (const sql of APP_TABLES_SQL) {
     await lb.query(sql);
   }

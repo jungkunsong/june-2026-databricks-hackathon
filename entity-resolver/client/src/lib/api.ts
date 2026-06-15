@@ -10,16 +10,26 @@ export interface ResolutionTask {
   updated_at: string;
 }
 
-export interface Decision {
+export interface DecisionLogEntry {
   id: number;
-  task_id: number;
-  cluster_id: string;
-  outcome: 'merged' | 'split' | 'confirmed_duplicate' | 'confirmed_distinct' | 'deferred';
-  golden_record: Record<string, unknown> | null;
+  task_id: number | null;
+  resolved_id: number | null;
+  raw_row_id: number | null;
+  facility_name: string | null;
+  outcome: 'verified' | 'corrected' | 'partial' | 'deferred';
   confidence: number | null;
-  reasoning: string | null;
-  decided_by: string;
-  created_at: string;
+  reasoning: string;
+  agents_consulted: string[] | null;
+  verifications: Array<{
+    field: string;
+    status: 'verified' | 'corrected' | 'unverifiable' | 'skipped';
+    old_value?: string | null;
+    new_value?: string | null;
+    agent?: string;
+    supervisor_reasoning?: string;
+  }> | null;
+  human_notes: string | null;
+  decided_at: string;
 }
 
 export interface Message {
@@ -78,7 +88,7 @@ export interface ClusterSummary {
 export interface TaskWithThread {
   task: ResolutionTask & { decision_count: number; message_count: number };
   messages: Message[];
-  latest_decision: Decision | null;
+  latest_decision: DecisionLogEntry | null;
 }
 
 async function req<T>(path: string, options?: RequestInit): Promise<T> {
@@ -141,23 +151,8 @@ export const messagesApi = {
     }),
 };
 
-// ── Decisions ─────────────────────────────────────────────────────────────────
+// ── Decision log ──────────────────────────────────────────────────────────────
 
-export const decisionsApi = {
-  list: () => req<(Decision & { cluster_id: string })[]>('/api/decisions'),
-  create: (
-    taskId: number,
-    decision: {
-      cluster_id: string;
-      outcome: string;
-      golden_record?: Record<string, unknown>;
-      confidence?: number;
-      reasoning?: string;
-      decided_by?: string;
-    },
-  ) =>
-    req<Decision>(`/api/tasks/${taskId}/decisions`, {
-      method: 'POST',
-      body: JSON.stringify(decision),
-    }),
+export const decisionLogApi = {
+  list: () => req<DecisionLogEntry[]>('/api/decision-log'),
 };
