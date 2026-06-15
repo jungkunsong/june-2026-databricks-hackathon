@@ -13,7 +13,12 @@ export function setupFacilitiesRoutes(lb: LakebaseHandle, srv: ServerHandle) {
       try {
         const { search } = req.query as { search?: string };
         const params: unknown[] = [];
-        let where = 'WHERE cluster_id IS NOT NULL';
+        let where = `WHERE cluster_id IS NOT NULL
+          AND cluster_id NOT IN (
+            SELECT DISTINCT cluster_id
+            FROM app.facilities_resolved
+            WHERE cluster_id IS NOT NULL
+          )`;
         if (search) {
           params.push(`%${search}%`);
           where += ` AND name ILIKE $${params.length}`;
@@ -50,6 +55,13 @@ export function setupFacilitiesRoutes(lb: LakebaseHandle, srv: ServerHandle) {
           nameFilter = `AND name ILIKE $${params.length}`;
         }
 
+        // Subquery to exclude already-resolved clusters
+        const resolvedExclusion = `AND cluster_id NOT IN (
+            SELECT DISTINCT cluster_id
+            FROM app.facilities_resolved
+            WHERE cluster_id IS NOT NULL
+          )`;
+
         // Push limit and offset as the last two params
         params.push(lim);
         const limitParam = `$${params.length}`;
@@ -65,6 +77,7 @@ export function setupFacilitiesRoutes(lb: LakebaseHandle, srv: ServerHandle) {
             FROM virtue_foundation_dataset.facilities_raw
             WHERE cluster_id IS NOT NULL
             ${nameFilter}
+            ${resolvedExclusion}
           ),
           rep AS (
             SELECT cluster_id,
@@ -85,6 +98,7 @@ export function setupFacilitiesRoutes(lb: LakebaseHandle, srv: ServerHandle) {
             FROM virtue_foundation_dataset.facilities_raw
             WHERE cluster_id IS NOT NULL
             ${nameFilter}
+            ${resolvedExclusion}
             GROUP BY cluster_id
           )
           SELECT r.cluster_id,

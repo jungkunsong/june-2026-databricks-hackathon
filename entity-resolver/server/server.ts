@@ -8,6 +8,7 @@ import { phoneValidatorAgent } from './agents/phone-validator';
 import { locationValidatorAgent } from './agents/location-validator';
 import { sourceAuthorityValidatorAgent } from './agents/source-authority-validator';
 import { controlledVocabularyValidatorAgent } from './agents/controlled-vocabulary-validator';
+import { contextValidatorAgent } from './agents/context-validator';
 import { initSchema } from './routes/lakebase/schema';
 import { setupResolutionRoutes } from './routes/lakebase/resolution-routes';
 import { setupFacilitiesRoutes } from './routes/facilities-routes';
@@ -25,6 +26,7 @@ createApp({
         'location-validator': locationValidatorAgent,
         'source-authority-validator': sourceAuthorityValidatorAgent,
         'controlled-vocabulary-validator': controlledVocabularyValidatorAgent,
+        'context-validator': contextValidatorAgent,
       },
     }),
     lakebase(),

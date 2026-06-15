@@ -742,6 +742,12 @@ export function ResolvePage() {
                   >
                     View in Decisions →
                   </button>
+                  <button
+                    onClick={() => navigate('/', { state: { resolvedClusterId: clusterId } })}
+                    className="text-xs text-muted-foreground hover:underline font-medium"
+                  >
+                    ← Back to queue
+                  </button>
                 </div>
               )}
             </div>

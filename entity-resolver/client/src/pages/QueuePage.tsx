@@ -1,10 +1,11 @@
 import { useState, useEffect, useCallback } from 'react';
-import { useNavigate } from 'react-router';
+import { useNavigate, useLocation } from 'react-router';
 import { Search, MapPin, Building2, Layers, ArrowRight, Loader2, RefreshCw } from 'lucide-react';
 import { clustersApi, type ClusterSummary } from '../lib/api';
 
 export function QueuePage() {
   const navigate = useNavigate();
+  const location = useLocation();
   const [clusters, setClusters] = useState<ClusterSummary[]>([]);
   const [total, setTotal] = useState<number | null>(null);
   const [search, setSearch] = useState('');
@@ -12,7 +13,20 @@ export function QueuePage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [page, setPage] = useState(0);
+  // Optimistically hidden cluster IDs — removed immediately on return from ResolvePage
+  const [hiddenClusterIds, setHiddenClusterIds] = useState<Set<string>>(new Set());
   const PAGE_SIZE = 20;
+
+  // When navigating back from ResolvePage after a promotion, hide the resolved
+  // cluster immediately (before the refetch completes) so the list feels instant.
+  useEffect(() => {
+    const state = location.state as { resolvedClusterId?: string } | null;
+    if (state?.resolvedClusterId) {
+      setHiddenClusterIds((prev) => new Set([...prev, state.resolvedClusterId!]));
+      // Clear the state so a back/forward navigation doesn't re-hide
+      window.history.replaceState({}, '');
+    }
+  }, [location.state]);
 
   // Debounce search
   useEffect(() => {
@@ -30,6 +44,14 @@ export function QueuePage() {
       ]);
       setClusters(rows);
       setTotal(countResult.total);
+      // Once the server-filtered list lands, clear any optimistic hides that are
+      // already absent from the fresh results (avoids stale hides on page change).
+      setHiddenClusterIds((prev) => {
+        if (prev.size === 0) return prev;
+        const freshIds = new Set(rows.map((r) => r.cluster_id));
+        const stillPresent = [...prev].filter((id) => freshIds.has(id));
+        return stillPresent.length === prev.size ? prev : new Set(stillPresent);
+      });
     } catch (e) {
       setError(String(e));
     } finally {
@@ -99,7 +121,7 @@ export function QueuePage() {
         </div>
       ) : (
         <div className="space-y-2">
-          {clusters.map((cluster) => {
+          {clusters.filter((c) => !hiddenClusterIds.has(c.cluster_id)).map((cluster) => {
             return (
               <div
                 key={cluster.cluster_id}
