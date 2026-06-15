@@ -10,6 +10,7 @@
 --                                      also replace empty array strings '[]' and '[""]' with NULL
 --   4. duplicate-array-column-entries.md — deduplicate entries within JSON array string columns
 --   5. farmacy-typo.md               — normalize 'farmacy' → 'pharmacy' in facilityTypeId (10 rows)
+--   6. redundant-coordinates-column.md — drop coordinates (fully redundant with latitude/longitude)
 -- =============================================================================
 
 CREATE OR REPLACE TABLE workspace.default.facilities AS
@@ -84,7 +85,6 @@ null_fixed AS (
     NULLIF(engagement_metrics_n_likes,                      'null') AS engagement_metrics_n_likes,
     NULLIF(engagement_metrics_n_engagements,                'null') AS engagement_metrics_n_engagements,
     source,
-    coordinates,
     latitude,
     longitude,
     cluster_id,
@@ -144,7 +144,7 @@ SELECT
   engagement_metrics_n_likes,
   engagement_metrics_n_engagements,
   source,
-  coordinates,
+  -- coordinates column dropped (Fix #6): fully redundant with latitude and longitude
   latitude,
   longitude,
   cluster_id,
