@@ -97,8 +97,8 @@ null_fixed AS (
 )
 
 -- Fix #4 (duplicate-array-column-entries.md): Deduplicate entries within JSON
--- array string columns by parsing → array_distinct() → re-serializing to JSON.
--- NULL and empty array '[]' values are passed through unchanged.
+-- array string columns by parsing → filter out '' elements → array_distinct() → re-serializing to JSON.
+-- NULL values are passed through unchanged. Arrays that become empty after filtering are set to NULL.
 
 -- Fix #5 (farmacy-typo.md): Normalize 'farmacy' → 'pharmacy' in facilityTypeId (10 rows)
 
@@ -108,16 +108,16 @@ null_fixed AS (
 -- to official India Post statenames in address_stateOrRegion (103 rows).
 SELECT
   unique_id,
-  CASE WHEN source_types      IS NULL OR source_types      = '[]' THEN source_types      ELSE to_json(array_distinct(from_json(source_types,      'array<string>'))) END AS source_types,
-  CASE WHEN source_ids        IS NULL OR source_ids        = '[]' THEN source_ids        ELSE to_json(array_distinct(from_json(source_ids,        'array<string>'))) END AS source_ids,
+  NULLIF(to_json(array_distinct(filter(from_json(source_types,      'array<string>'), x -> x != ''))), '[]') AS source_types,
+  NULLIF(to_json(array_distinct(filter(from_json(source_ids,        'array<string>'), x -> x != ''))), '[]') AS source_ids,
   source_content_id,
   name,
   organization_type,
   content_table_id,
-  CASE WHEN phone_numbers     IS NULL OR phone_numbers     = '[]' THEN phone_numbers     ELSE to_json(array_distinct(from_json(phone_numbers,     'array<string>'))) END AS phone_numbers,
+  NULLIF(to_json(array_distinct(filter(from_json(phone_numbers,     'array<string>'), x -> x != ''))), '[]') AS phone_numbers,
   officialPhone,
   email,
-  CASE WHEN websites          IS NULL OR websites          = '[]' THEN websites          ELSE to_json(array_distinct(from_json(websites,          'array<string>'))) END AS websites,
+  NULLIF(to_json(array_distinct(filter(from_json(websites,          'array<string>'), x -> x != ''))), '[]') AS websites,
   officialWebsite,
   yearEstablished,
   acceptsVolunteers,
@@ -163,18 +163,18 @@ SELECT
   address_zipOrPostcode,
   address_country,
   address_countryCode,
-  CASE WHEN countries         IS NULL OR countries         = '[]' THEN countries         ELSE to_json(array_distinct(from_json(countries,         'array<string>'))) END AS countries,
+  NULLIF(to_json(array_distinct(filter(from_json(countries,         'array<string>'), x -> x != ''))), '[]') AS countries,
   CASE WHEN facilityTypeId = 'farmacy' THEN 'pharmacy' ELSE facilityTypeId END AS facilityTypeId,
   operatorTypeId,
-  CASE WHEN affiliationTypeIds IS NULL OR affiliationTypeIds = '[]' THEN affiliationTypeIds ELSE to_json(array_distinct(from_json(affiliationTypeIds, 'array<string>'))) END AS affiliationTypeIds,
+  NULLIF(to_json(array_distinct(filter(from_json(affiliationTypeIds, 'array<string>'), x -> x != ''))), '[]') AS affiliationTypeIds,
   description,
   area,
   numberDoctors,
   capacity,
-  CASE WHEN specialties       IS NULL OR specialties       = '[]' THEN specialties       ELSE to_json(array_distinct(from_json(specialties,       'array<string>'))) END AS specialties,
-  CASE WHEN procedure         IS NULL OR procedure         = '[]' THEN procedure         ELSE to_json(array_distinct(from_json(procedure,         'array<string>'))) END AS procedure,
-  CASE WHEN equipment         IS NULL OR equipment         = '[]' THEN equipment         ELSE to_json(array_distinct(from_json(equipment,         'array<string>'))) END AS equipment,
-  CASE WHEN capability        IS NULL OR capability        = '[]' THEN capability        ELSE to_json(array_distinct(from_json(capability,        'array<string>'))) END AS capability,
+  NULLIF(to_json(array_distinct(filter(from_json(specialties,       'array<string>'), x -> x != ''))), '[]') AS specialties,
+  NULLIF(to_json(array_distinct(filter(from_json(procedure,         'array<string>'), x -> x != ''))), '[]') AS procedure,
+  NULLIF(to_json(array_distinct(filter(from_json(equipment,         'array<string>'), x -> x != ''))), '[]') AS equipment,
+  NULLIF(to_json(array_distinct(filter(from_json(capability,        'array<string>'), x -> x != ''))), '[]') AS capability,
   recency_of_page_update,
   distinct_social_media_presence_count,
   affiliated_staff_presence,
@@ -190,5 +190,5 @@ SELECT
   latitude,
   longitude,
   cluster_id,
-  CASE WHEN source_urls       IS NULL OR source_urls       = '[]' THEN source_urls       ELSE to_json(array_distinct(from_json(source_urls,       'array<string>'))) END AS source_urls
+  NULLIF(to_json(array_distinct(filter(from_json(source_urls,       'array<string>'), x -> x != ''))), '[]') AS source_urls
 FROM null_fixed;

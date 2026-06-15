@@ -83,8 +83,9 @@ In addition to `'null'` strings, some array-typed columns contain empty array re
 |---|---|---|
 | `'[]'` | `[]` | Empty JSON array — no values present |
 | `'[""]'` | `[""]` | Array containing a single empty string — effectively empty |
+| `'["", ...]'` | `["","value",...]` | Array with a mix of empty strings and real values — empty strings removed |
 
-These appear in the same array-backed string columns (`source_types`, `source_ids`, `phone_numbers`, `websites`, `countries`, `affiliationTypeIds`, `specialties`, `procedure`, `equipment`, `capability`, `source_urls`) and should be normalized to `NULL` alongside `'null'` strings.
+These appear in the same array-backed string columns (`source_types`, `source_ids`, `phone_numbers`, `websites`, `countries`, `affiliationTypeIds`, `specialties`, `procedure`, `equipment`, `capability`, `source_urls`) and should be normalized to `NULL` alongside `'null'` strings. Additionally, arrays that contain a mix of empty strings and real values (e.g. `["","Provides dialysis treatment","Kidney transplant services"]`) must have the empty string elements stripped out.
 
 ## Root Cause
 
