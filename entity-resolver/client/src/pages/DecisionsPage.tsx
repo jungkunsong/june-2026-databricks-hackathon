@@ -234,7 +234,7 @@ function DecisionRow({ entry }: { entry: DecisionLogEntry }) {
                   <button
                     onClick={(e) => {
                       e.stopPropagation();
-                      navigate(`/resolve/${entry.cluster_id}`);
+                      navigate(`/resolve/${entry.cluster_id}`, { state: { refine: entry } });
                     }}
                     className="inline-flex items-center gap-1.5 rounded-md border border-border bg-white px-3 py-1.5 text-xs font-medium text-[#0B2026] shadow-sm hover:bg-muted transition-colors"
                   >

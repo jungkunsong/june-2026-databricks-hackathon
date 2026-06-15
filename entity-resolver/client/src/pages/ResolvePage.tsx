@@ -18,7 +18,7 @@ import {
   X,
   Check,
 } from 'lucide-react';
-import { clustersApi, tasksApi, promoteApi, type FacilityRecord, type ResolutionTask } from '../lib/api';
+import { clustersApi, tasksApi, promoteApi, type FacilityRecord, type ResolutionTask, type DecisionLogEntry } from '../lib/api';
 import { AgentChat } from './agents/AgentChat';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -323,7 +323,10 @@ export function ResolvePage() {
   const { clusterId } = useParams<{ clusterId: string }>();
   const navigate = useNavigate();
   const location = useLocation();
-  const rerun = !!(location.state as { rerun?: boolean } | null)?.rerun;
+  const locationState = location.state as { rerun?: boolean; refine?: DecisionLogEntry } | null;
+  const rerun = !!locationState?.rerun;
+  // refineEntry: pre-populate the approval panel from a previous decision, no agent needed
+  const refineEntry = locationState?.refine ?? null;
 
   const [records, setRecords] = useState<FacilityRecord[]>([]);
   const [loading, setLoading] = useState(true);
@@ -385,6 +388,34 @@ export function ResolvePage() {
   }, [clusterId]);
 
   useEffect(() => { void load(); }, [load]);
+
+  // Refine mode: seed proposal from the previous decision entry, skip the agent entirely
+  useEffect(() => {
+    if (!refineEntry || loading) return;
+    const fields: FieldProposal[] = (refineEntry.verifications ?? []).map((v) => ({
+      field: v.field,
+      label: v.field,
+      value: v.new_value ?? v.old_value ?? null,
+      old_value: v.old_value ?? null,
+      status: v.status as FieldProposal['status'],
+      agent: v.agent ?? null,
+      note: v.supervisor_reasoning ?? '',
+    }));
+    const seeded: PromotionProposal = {
+      outcome: refineEntry.outcome,
+      confidence: refineEntry.confidence ?? 0,
+      reasoning: refineEntry.reasoning,
+      agents_consulted: refineEntry.agents_consulted ?? [],
+      fields,
+    };
+    setProposal(seeded);
+    setDecisions(
+      Object.fromEntries(fields.map((f) => [f.field, { action: 'accept' as const, overrideValue: '' }]))
+    );
+    setAgentStarted(true);
+    window.history.replaceState({}, '');
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [refineEntry, loading]);
 
   // Auto-start agent when navigated here with rerun:true (from DecisionsPage)
   useEffect(() => {
@@ -605,19 +636,22 @@ export function ResolvePage() {
           <div className="flex items-center justify-between border-b border-border px-4 py-2.5 flex-shrink-0">
             <span className="flex items-center gap-2 text-sm font-semibold text-[#0B2026]">
               <Bot className="h-4 w-4" />
-              Supervisor Agent
+              {refineEntry ? 'Refine Previous Decision' : 'Supervisor Agent'}
             </span>
-            {agentStarted && agentStreaming && (
+            {!refineEntry && agentStarted && agentStreaming && (
               <span className="flex items-center gap-1.5 text-xs text-blue-600 font-medium">
                 <Loader2 className="h-3 w-3 animate-spin" />
                 Verifying…
               </span>
             )}
-            {agentStarted && !agentStreaming && !promoted && proposal && (
+            {!refineEntry && agentStarted && !agentStreaming && !promoted && proposal && (
               <span className="text-xs text-green-600 font-medium">Proposal ready</span>
             )}
-            {agentStarted && !agentStreaming && !promoted && !proposal && (
+            {!refineEntry && agentStarted && !agentStreaming && !promoted && !proposal && (
               <span className="text-xs text-muted-foreground font-medium">Ready</span>
+            )}
+            {refineEntry && !promoted && (
+              <span className="text-xs text-muted-foreground font-medium">Edit fields below</span>
             )}
             {promoted && (
               <span className={`text-xs font-medium ${promoted.outcome === 'deferred' ? 'text-yellow-600' : 'text-green-600'}`}>
@@ -654,16 +688,18 @@ export function ResolvePage() {
           ) : (
             <div className="flex flex-col flex-1 min-h-0">
 
-              {/* Chat — shrinks to make room for the approval panel */}
-              <div className={`min-h-0 overflow-hidden transition-all ${proposal && !promoted ? 'flex-[0_0_40%]' : 'flex-1'}`}>
-                <AgentChat
-                  initialMessage={initialMessage}
-                  started={agentStarted}
-                  placeholder="Reply to Supervisor…"
-                  onStreamingChange={setAgentStreaming}
-                  onMessagesChange={setAgentMessages}
-                />
-              </div>
+              {/* Chat — shrinks to make room for the approval panel; hidden in refine mode */}
+              {!refineEntry && (
+                <div className={`min-h-0 overflow-hidden transition-all ${proposal && !promoted ? 'flex-[0_0_40%]' : 'flex-1'}`}>
+                  <AgentChat
+                    initialMessage={initialMessage}
+                    started={agentStarted}
+                    placeholder="Reply to Supervisor…"
+                    onStreamingChange={setAgentStreaming}
+                    onMessagesChange={setAgentMessages}
+                  />
+                </div>
+              )}
 
               {/* ── Approval panel — appears once proposal is parsed ── */}
               {!promoted && proposal && (
@@ -711,7 +747,7 @@ export function ResolvePage() {
               )}
 
               {/* ── Fallback decision panel — before proposal arrives ── */}
-              {!promoted && !proposal && !agentStreaming && agentStarted && (
+              {!refineEntry && !promoted && !proposal && !agentStreaming && agentStarted && (
                 <div className="flex-shrink-0 border-t border-border bg-[#FAFAF9] px-4 py-3 space-y-2.5">
                   <p className="text-xs text-muted-foreground">
                     Waiting for the Supervisor to finish analysis…
