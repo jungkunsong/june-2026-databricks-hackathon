@@ -123,17 +123,13 @@ function Section({ title, icon, children, defaultOpen = true }: {
   );
 }
 
-function buildInitialMessage(clusterId: string, records: FacilityRecord[]): string {
+function buildInitialMessage(_clusterId: string, records: FacilityRecord[]): string {
   const primary = records[0];
   const rowId = primary?.row_id;
   const names = [...new Set(records.map((r) => r.name).filter(Boolean))].join(', ');
+  const recordWord = records.length === 1 ? 'record' : 'records';
   return (
-    `Please begin AI Agent Verification for facility cluster "${clusterId}".\n\n` +
-    `Primary record row_id: ${rowId}. ` +
-    `This cluster contains ${records.length} record(s): ${names}.\n\n` +
-    `Start by calling agent-evidence-fetcher with input: '{"row_id": ${rowId}}'. ` +
-    `Then dispatch all appropriate sub-agents based on the populated fields. ` +
-    `Present your findings and end with a PROMOTION_PROPOSAL: block.`
+    `Verify **${names}** (${records.length} source ${recordWord}, row_id: ${rowId}).`
   );
 }
 
