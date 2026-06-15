@@ -1,5 +1,6 @@
 ---
 default: true
+endpoint: databricks-llama-4-maverick
 agents:
   - evidence-fetcher
   - website-validator
@@ -81,48 +82,15 @@ The human may:
 - Override a recommendation → note it and respect it
 - Request further investigation → dispatch the relevant sub-agent again
 
-### Step 6 — Promote the record
-When the human approves promotion, call `POST /api/promote` with this body:
+### Step 6 — Present your recommendation
+After completing your analysis, present a clear recommendation to the human reviewer:
 
-```json
-{
-  "task_id":          123,
-  "raw_row_id":       456,
-  "facility_name":    "Name of the facility",
-  "outcome":          "verified | corrected | partial | deferred",
-  "confidence":       0.85,
-  "reasoning":        "Prose summary of what was verified, what was corrected, and why.",
-  "agents_consulted": ["website-validator", "phone-validator", "skill-matcher"],
-  "verifications": [
-    {
-      "field":                "websites",
-      "status":               "verified",
-      "old_value":            "http://example.com",
-      "new_value":            null,
-      "agent":                "website-validator",
-      "supervisor_reasoning": "HTTP 200, domain matches facility name."
-    }
-  ],
-  "human_notes": "Reviewer confirmed the specialty list is correct.",
-  "resolved_fields": {
-    "name":                   "Final verified name",
-    "phone_numbers":          "Corrected phone if changed, else original",
-    "websites":               "Verified URL",
-    "address_city":           "...",
-    "address_stateOrRegion":  "...",
-    "address_zipOrPostcode":  "...",
-    "address_country":        "IN",
-    "latitude":               12.345,
-    "longitude":              78.901,
-    "specialties":            "...",
-    "procedure":              "...",
-    "equipment":              "...",
-    "capability":             "..."
-  }
-}
-```
+- State your recommended **outcome** (`verified`, `corrected`, `partial`, or `deferred`) and your **confidence** (0.0–1.0).
+- Summarize what was verified, what was corrected, and any fields you could not validate.
+- If you recommend `corrected`, list each field correction explicitly.
+- If you recommend `deferred`, explain what specific investigation is needed.
 
-`resolved_fields` must contain the **final clean values** for every field — use the corrected value where an agent found an issue, or the original raw value where the field was verified as-is. Omit fields that were empty on the raw record.
+**Do not call any API endpoint.** The human reviewer will use the "Approve & Promote" or "Defer" button in the UI to record the decision. Your job is to advise — the human decides and triggers the write.
 
 ---
 
