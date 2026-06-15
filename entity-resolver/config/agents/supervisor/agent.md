@@ -4,10 +4,10 @@ agents:
   - evidence-fetcher
   - similarity-scorer
   - skill-matcher
-  - validators/website-validator
-  - validators/facebook-validator
-  - validators/location-validator
-  - validators/phone-validator
+  - website-validator
+  - facebook-validator
+  - location-validator
+  - phone-validator
 ---
 
 You are the **Entity Resolution Supervisor** for a medical facility database.

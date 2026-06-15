@@ -1,7 +1,7 @@
 # Product Requirements Document
 ## Entity Resolver — Medical Facility Record Verification Platform
 
-**Version:** 2.0
+**Version:** 2.1
 **Date:** June 15, 2026
 **Hackathon:** Databricks DAIS 2026
 
@@ -27,20 +27,24 @@ Entity Resolver is that tool. It uses a multi-agent AI system to verify contact 
 
 The workflow is:
 
-1. Reviewer selects a facility record from the queue
-2. The Supervisor agent automatically dispatches validator sub-agents against that record's data
-3. Each sub-agent independently verifies one dimension of the record (website, phone, location, Facebook, etc.) and reports its findings back to the Supervisor
-4. The Supervisor reviews the sub-agent findings, agrees or disagrees, may ask a sub-agent to continue investigating, and synthesizes a recommended resolution path
-5. The Supervisor surfaces questions or requests clarification from the human reviewer when confidence is low
-6. The reviewer reads the findings, answers any questions, and approves or modifies the resolution
-7. The record is promoted from `facilities_raw` to `facilities_resolved` with clean, validated field values
-8. The Supervisor writes a decision log entry documenting what was verified, what was corrected, and why
+1. Reviewer selects a facility record from the queue and views its raw data
+2. Reviewer explicitly clicks **"AI Agent Verification"** to initiate the verification session
+3. The Supervisor agent starts, reads the record's populated fields, and dispatches the appropriate validator sub-agents in parallel
+4. Each sub-agent independently verifies one dimension of the record (website, phone, location, Facebook, etc.) and reports its findings back **only to the Supervisor** — never directly to the user
+5. The Supervisor interrogates each sub-agent's findings: accepts conclusive results, rejects or requests re-examination of inconclusive ones, and resolves conflicts between agents before surfacing anything to the human
+6. The Supervisor surfaces only approved findings to the human reviewer — each with attached reasoning — or marks a field as **"unable to validate"** if confidence cannot be established after retries
+7. The reviewer reads the findings, answers any Supervisor questions, and approves or modifies the resolution
+8. The record is promoted from `facilities_raw` to `facilities_resolved` with clean, validated field values
+9. The Supervisor writes a decision log entry documenting what was verified, what was corrected, and why
 
 ---
 
 ## 3. Goals
 
 - A non-technical reviewer can process a raw facility record end-to-end without writing a query or opening a browser
+- Verification is **explicitly initiated** by the reviewer — the agent does not start automatically on record selection
+- Every result the reviewer sees has been approved by the Supervisor and carries attached reasoning; no raw sub-agent output ever reaches the user
+- Results the Supervisor cannot validate are surfaced as **"unable to validate"** with an explanation — never silently dropped
 - Every promoted record has at least one verified data point (website reachable, phone valid, location consistent, etc.)
 - Every promotion is backed by a decision log entry written by the Supervisor agent
 - The Supervisor acts as an intelligent intermediary — not just a pass-through — by evaluating sub-agent findings and pushing back when results are inconclusive
@@ -61,7 +65,7 @@ The workflow is:
 
 | Persona | Description |
 |---|---|
-| **Non-Technical Reviewer** | Primary user. No SQL or data engineering background. Works through the queue, reads agent findings in plain language, answers clarifying questions, and approves promotions. |
+| **Non-Technical Reviewer** | Primary user. No SQL or data engineering background. Works through the queue, reads Supervisor-approved findings in plain language, answers clarifying questions, and approves promotions. Never sees raw sub-agent output. |
 | **Data Engineer** | Runs the sync notebook, monitors schema health, manages Lakebase. Occasional user of the raw SQL view for debugging. |
 | **Hackathon Judge** | Evaluates the live demo — cares about the agent orchestration story, the human-in-the-loop interaction, and UI clarity. |
 
@@ -73,7 +77,15 @@ The workflow is:
   Queue
   ──────
   Reviewer browses raw facility records
-  Selects one record to resolve
+  Selects one record to view its raw data
+        │
+        ▼
+  Record Detail View
+  ──────────────────
+  Raw record fields displayed to reviewer
+  Reviewer clicks "AI Agent Verification" to begin
+        │
+        ▼  [explicit user action required]
         │
         ▼
   Supervisor Agent starts
@@ -89,31 +101,30 @@ The workflow is:
         └──► skill-matcher        (always)
         │
         ▼
-  Sub-agents report findings
-  ──────────────────────────
-  Each agent returns structured results:
-  - What it checked
-  - What it found
-  - Whether the data point is verified, suspicious, or invalid
-  - Any corrections it recommends
+  Sub-agents report findings to Supervisor  ◄──────────────────┐
+  ─────────────────────────────────────────                     │
+  Each agent returns structured results to the Supervisor only: │
+  - What it checked                                             │
+  - What it found                                               │
+  - Whether the data point is verified, suspicious, or invalid  │
+  - Any corrections it recommends                               │
+  [Human reviewer never sees this layer]                        │
+        │                                                       │
+        ▼                                                       │
+  Supervisor interrogates each finding                          │
+  ────────────────────────────────────                          │
+    if conclusive and consistent → approve for human presentation│
+    if inconclusive or weak      → reject; ask sub-agent to re-examine ──┘
+    if contradicts other finding → surface conflict to human as a question
+    if exhausted retries         → mark as "unable to validate"
         │
         ▼
-  Supervisor evaluates
-  ────────────────────
-  Reviews each sub-agent's findings
-  May agree and incorporate, OR
-  May disagree and ask the sub-agent to re-examine, OR
-  May flag the finding as inconclusive and ask the human
-        │
-        ▼
-  Supervisor presents resolution path
-  ───────────────────────────────────
-  Structured summary in plain language:
-  - What was verified
-  - What was corrected (with old to new value)
-  - What is still uncertain
-  - Recommended action with confidence score
-  - Specific questions for the human (if confidence < 0.8)
+  Supervisor presents approved findings to human
+  ───────────────────────────────────────────────
+  Only Supervisor-approved content is shown. Each item is one of:
+  - Verified Finding: field, status, plain-language result, Supervisor reasoning, correction if any
+  - Unable to Validate: field, explanation of why confidence could not be established
+  - Question for Reviewer: targeted question when a conflict or low-confidence field needs human input
         │
         ▼
   Human reviewer responds
@@ -135,22 +146,30 @@ The workflow is:
 
 ### 7.1 Supervisor (config/agents/supervisor/)
 
-The orchestrator, evaluator, and summarizer. The Supervisor is not a passive router — it actively evaluates sub-agent findings and decides what to do with them before presenting anything to the human.
+The orchestrator, evaluator, and summarizer. The Supervisor is the **sole interface between the agent layer and the human reviewer** — it actively evaluates sub-agent findings and decides what to do with them before presenting anything to the human.
 
 **Responsibilities:**
 - Dispatch the right sub-agents based on which fields are populated on the record
-- Evaluate each sub-agent's output: accept, reject, or request follow-up
-- Synthesize all findings into a plain-language resolution path
-- Ask the human targeted questions when confidence is insufficient
+- Interrogate each sub-agent's output: accept, reject, or request follow-up
+- Resolve conflicts between sub-agents before surfacing anything to the human
+- Attach its own reasoning to every finding it approves for human presentation
+- Mark findings as "unable to validate" when confidence cannot be established after retries
+- Ask the human targeted questions when confidence is insufficient or a conflict cannot be resolved internally
 - Write the decision log entry when the human approves promotion
 
 **Supervisor decision loop:**
 ```
 for each sub-agent result:
-  if result is conclusive and consistent → incorporate into recommendation
-  if result is inconclusive             → ask sub-agent to re-examine or flag for human
-  if result contradicts other findings  → surface the conflict to the human explicitly
+  if result is conclusive and consistent → approve; attach Supervisor reasoning; present to human
+  if result is inconclusive             → reject; ask sub-agent to re-examine with specific instructions
+    → if still inconclusive after retry → mark as "unable to validate"; explain to human
+  if result contradicts other findings  → surface the conflict to the human explicitly as a question
 ```
+
+**Human-facing output rules:**
+- The human **never** sees raw sub-agent output
+- Every finding presented to the human carries the Supervisor's attached reasoning
+- Every field the Supervisor could not validate is explicitly surfaced as "unable to validate" — findings are never silently dropped
 
 **Promotion outcomes written to decision log:**
 - `verified` — record promoted with no field changes; all checked data points confirmed
@@ -160,7 +179,7 @@ for each sub-agent result:
 
 ### 7.2 Validator Sub-agents (config/agents/validators/)
 
-Each validator is responsible for one dimension of the record. They report findings back to the Supervisor — they do not interact with the human directly.
+Each validator is responsible for one dimension of the record. They report findings back **only to the Supervisor** — they do not interact with the human directly. The Supervisor may send a sub-agent back to re-examine a finding before accepting it.
 
 | Agent | Checks | Verified When | Correction Suggested When |
 |---|---|---|---|
@@ -168,6 +187,20 @@ Each validator is responsible for one dimension of the record. They report findi
 | `phone-validator` | phone_numbers field | Matches TRAI mobile format | Literal null string, wrong digit count, invalid prefix |
 | `location-validator` | latitude, longitude, address_zipOrPostcode | Coordinates within 20km of pincode centroid | Distance > 50km between coordinates and postcode |
 | `facebook-validator` | facebookLink field | og:title matches facility name | og:title refers to a different entity, or page not found |
+
+**Sub-agent response contract (returned to Supervisor only):**
+```
+{
+  agent:      string            // agent identifier
+  field:      string            // field that was checked
+  status:     "verified" | "suspicious" | "invalid" | "inconclusive"
+  evidence:   string            // what the agent actually observed
+  correction: { old, new }      // only if status is "suspicious" or "invalid"
+  confidence: 0.0 – 1.0
+}
+```
+
+If a sub-agent returns `inconclusive` or `confidence < 0.6`, the Supervisor will request a follow-up pass before approving anything for human presentation.
 
 ### 7.3 Analysis Sub-agents
 
@@ -198,7 +231,7 @@ decision_log entry fields:
   - confidence          0.0 to 1.0 score from the Supervisor
   - reasoning           prose summary of why this outcome was chosen
   - agents_consulted    list of sub-agents that ran
-  - verifications       per-field: { field, status, old_value, new_value, agent }
+  - verifications       per-field: { field, status, old_value, new_value, agent, supervisor_reasoning }
   - human_notes         anything the reviewer typed
   - decided_at          timestamp
 ```
@@ -269,7 +302,7 @@ decision_log entry fields:
 |---|---|
 | `app.resolution_tasks` | One row per record under review; tracks status (pending / in_progress / resolved / skipped) |
 | `app.decision_log` | Append-only audit trail written by the Supervisor at promotion time; one entry per resolved record |
-| `app.messages` | Full conversation thread per task; roles: user, supervisor, sub_agent |
+| `app.messages` | Full conversation thread per task; roles: user, supervisor, sub_agent. Sub-agent messages stored but never surfaced to the user directly. |
 | `app.facilities_resolved` | Clean, validated records promoted from raw; the trusted output of the system |
 | `app.entity_overrides` | Field-level corrections applied by the reviewer or agents before promotion |
 
@@ -280,9 +313,19 @@ decision_log entry fields:
 | Route | Page | Description |
 |---|---|---|
 | `/` | **Queue** | List of raw facility records with status badges. Reviewer picks a record to start a resolution session. |
-| `/resolve/:taskId` | **Resolve** | The primary workspace. Shows the raw record on the left; the Supervisor agent chat on the right. Reviewer reads findings, answers questions, and approves promotion. |
+| `/resolve/:taskId` | **Resolve** | The primary workspace. Shows the raw record on the left. The right panel is idle until the reviewer clicks **"AI Agent Verification"**. Once triggered, the panel shows only Supervisor-approved findings (each with attached reasoning), "unable to validate" notices, and targeted questions from the Supervisor. Reviewer reads findings, answers questions, and approves promotion. |
 | `/decisions` | **Decisions** | Audit log of all promoted records with outcome badges and decision log entries. |
 | `/lakebase` | **Lakebase** | Raw SQL interface for data engineers. |
+
+### Resolve page — right panel states
+
+| State | What the reviewer sees |
+|---|---|
+| **Idle** | "Click AI Agent Verification to begin" prompt with a button |
+| **Running** | Progress indicator showing which agents are active; no findings shown until Supervisor approves them |
+| **Findings ready** | Supervisor-approved findings, each with status badge and attached reasoning; "unable to validate" notices for unresolved fields; any questions from the Supervisor |
+| **Awaiting response** | Input field for the reviewer to answer a Supervisor question or provide a manual override |
+| **Ready to promote** | Summary of all findings; Approve / Defer buttons |
 
 ---
 
@@ -291,7 +334,10 @@ decision_log entry fields:
 | Decision | Choice | Rationale |
 |---|---|---|
 | Agent framework | Databricks AppKit agents plugin (beta) | Native integration with Databricks serving endpoints; markdown + code agent composition |
-| Supervisor as evaluator | Supervisor actively accepts/rejects sub-agent findings | Prevents bad sub-agent output from reaching the human unchecked |
+| Explicit verification trigger | Reviewer clicks "AI Agent Verification" | Prevents accidental agent runs; makes the human's intent explicit before compute is consumed |
+| Supervisor as strict gatekeeper | All sub-agent output filtered and approved by Supervisor before human sees it | Prevents weak or contradictory sub-agent output from reaching the reviewer unchecked |
+| Mandatory reasoning on findings | Supervisor attaches its own reasoning to every approved finding | Reviewer can assess trustworthiness; reasoning captured verbatim in the decision log |
+| "Unable to validate" as first-class outcome | Unresolvable fields surfaced explicitly, never silently dropped | Reviewer is always fully informed; no false confidence from missing data |
 | Database | Lakebase (Postgres-compatible) | Transactional workflow state alongside Unity Catalog analytics data |
 | Decision log written by agent | Supervisor writes the log entry, not the UI | The agent's reasoning is captured verbatim; no translation loss |
 | Facebook validation | Playwright headless Chromium | Only method that reliably extracts og:title without a session cookie or API token |
