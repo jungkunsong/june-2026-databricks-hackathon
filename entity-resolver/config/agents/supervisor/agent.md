@@ -54,17 +54,30 @@ Call agent-evidence-fetcher. Before proceeding, silently audit the result:
 - Which fields are present vs. null?
 - Are there any obvious anomalies (impossible phone format, coordinates in the ocean, zip mismatch, implausibly high doctor count)?
 - Flag every anomaly internally — you must address each one in your final summary.
+- For every null or missing field, note it as a **gap to fill** — you must attempt to recover it using the validators below.
 
-### Step 2 — Run all applicable validators (one per turn)
-Call each validator that applies. After each result, silently ask yourself:
-- Does this result **confirm**, **contradict**, or **fail to resolve** what the previous agents found?
-- If a result is ambiguous or weak (e.g., website redirects but domain mismatches, phone connects but is a call center), treat it as a **soft flag**, not a pass.
+### Step 2 — Run all applicable validators AND fill gaps (one per turn)
+Call each validator that applies. Validators are not just checkers — they are also **gap-fillers**. If a field is null, use the relevant validator to attempt to discover the correct value from external signals.
+
+After each result, silently ask:
+- Does this result **confirm**, **contradict**, or **fail to resolve** what previous agents found?
+- Did this agent **recover a missing value**? If so, mark that field as `corrected` with the discovered value in the proposal.
+- If a result is **ambiguous or weak** (e.g., website redirects but domain mismatches, phone connects but sounds like a call center, location is close but zip doesn't match) — **do not accept it as a pass**. Call the same agent again with a refined or alternative input to probe further. You may call an agent up to 2 times on the same field if the first result was inconclusive. Only mark it as a soft flag if the second call also fails to resolve it.
+
+Gap-filling responsibilities by validator:
+- **agent-website-validator**: If officialWebsite is null, pass the facility name and city as context and ask it to attempt discovery. If the website is present but fails, try an alternate URL format (with/without www, http vs https).
+- **agent-phone-validator**: If officialPhone is null, note the gap — the validator cannot discover phones, so flag it as unverifiable.
+- **agent-location-validator**: If coordinates are null but address fields are present, pass what is available and let the agent attempt geocoding. If zip is null but city/state are present, still call it.
+- **agent-facebook-validator**: If facebookLink is null, pass the facility name and city — the agent should attempt to find the correct Facebook page.
+- **agent-similarity-scorer**: Always call. Use it to detect duplicates and cross-check identity signals.
+- **agent-context-validator**: Always call. Use it to surface internal inconsistencies and score completeness.
+- **agent-skill-matcher**: Always call last. Use it to validate that equipment and specialties are coherent.
 
 Validator order:
-1. If officialWebsite present → agent-website-validator
-2. If officialPhone present → agent-phone-validator
-3. If lat + lng + zip present → agent-location-validator
-4. If facebookLink present → agent-facebook-validator
+1. agent-website-validator (always — even if officialWebsite is null, attempt discovery)
+2. If officialPhone present → agent-phone-validator (skip only if truly no phone data exists)
+3. agent-location-validator (always — even if coordinates are partial)
+4. If facebookLink present OR facility name is known → agent-facebook-validator
 5. Always → agent-similarity-scorer
 6. Always → agent-context-validator
 7. Always last → agent-skill-matcher
@@ -119,11 +132,15 @@ CRITICAL: The line after "PROMOTION_PROPOSAL:" must be a single valid JSON objec
 - `old_value` only present when the field was corrected — set to the original raw value.
 - `note` is one plain sentence explaining the evidence behind the status.
 - `status`: verified | corrected | unverifiable | flagged
+  - `verified`: field was present and confirmed by at least one validator
+  - `corrected`: field was null or wrong and a validator recovered/fixed the correct value — set `old_value` to the original (or `null` if it was missing)
+  - `unverifiable`: field is present but no validator could confirm or deny it
+  - `flagged`: validator found a contradiction or anomaly that needs human review
 - `outcome` (top-level): verified | corrected | partial | deferred
   - `verified`: all critical fields confirmed, confidence ≥ 0.85
-  - `corrected`: one or more fields were fixed, remaining fields confirmed
-  - `partial`: some fields confirmed, others unverifiable or flagged
-  - `deferred`: too many unresolved flags — human must investigate before promotion
+  - `corrected`: one or more fields were null or wrong and have been recovered/fixed, remaining fields confirmed
+  - `partial`: some fields confirmed, others unverifiable or flagged — gaps remain
+  - `deferred`: too many unresolved flags or gaps — human must investigate before promotion
 
 ---
 
