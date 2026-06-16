@@ -1,6 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
 import {
-  type AgentChatEvent,
   Input,
   useAgentChat,
   usePluginClientConfig,
@@ -30,25 +29,70 @@ interface AgentChatProps {
 
 // ── Agent activity feed ───────────────────────────────────────────────────────
 
+// Keys match the bare agent names used in PROMOTION_PROPOSAL agent_scores
+// (e.g. "evidence-fetcher", not "agent-evidence-fetcher")
 const AGENT_LABELS: Record<string, string> = {
-  'agent-evidence-fetcher':                'Fetching raw record…',
-  'agent-website-validator':               'Checking website…',
-  'agent-phone-validator':                 'Validating phone number…',
-  'agent-location-validator':              'Verifying location & coordinates…',
-  'agent-facebook-validator':              'Checking Facebook page…',
-  'agent-similarity-scorer':               'Scoring name & address similarity…',
-  'agent-duplicate-detector':              'Scanning for duplicate records…',
-  'agent-context-validator':               'Assessing record completeness…',
-  'agent-skill-matcher':                   'Matching specialties to equipment…',
-  'agent-source-authority-validator':      'Checking source authority…',
-  'agent-controlled-vocabulary-validator': 'Validating controlled vocabulary…',
+  'evidence-fetcher':                'Fetching raw record…',
+  'website-validator':               'Checking website…',
+  'phone-validator':                 'Validating phone number…',
+  'location-validator':              'Verifying location & coordinates…',
+  'facebook-validator':              'Checking Facebook page…',
+  'similarity-scorer':               'Scoring name & address similarity…',
+  'duplicate-detector':              'Scanning for duplicate records…',
+  'context-validator':               'Assessing record completeness…',
+  'skill-matcher':                   'Matching specialties to equipment…',
+  'source-authority-validator':      'Checking source authority…',
+  'controlled-vocabulary-validator': 'Validating controlled vocabulary…',
 };
+
+// Canonical agent order — used to sort the feed consistently
+const AGENT_ORDER = [
+  'evidence-fetcher',
+  'website-validator',
+  'phone-validator',
+  'location-validator',
+  'facebook-validator',
+  'similarity-scorer',
+  'duplicate-detector',
+  'context-validator',
+  'skill-matcher',
+  'source-authority-validator',
+  'controlled-vocabulary-validator',
+];
 
 // ms between each agent row appearing during the playback animation
 const PLAYBACK_STEP_MS = 400;
 
-function agentLabel(toolName: string): string {
-  return AGENT_LABELS[toolName] ?? `Calling ${toolName.replace(/^agent-/, '').replace(/-/g, ' ')}…`;
+function agentLabel(name: string): string {
+  return AGENT_LABELS[name] ?? `Calling ${name.replace(/-/g, ' ')}…`;
+}
+
+/**
+ * Extract agent names from a PROMOTION_PROPOSAL block embedded in content.
+ * The supervisor always emits:
+ *   PROMOTION_PROPOSAL: { ..., "agent_scores": [{"agent":"evidence-fetcher",...}, ...] }
+ * Returns names sorted by AGENT_ORDER, or [] if not found yet.
+ */
+function extractAgentsFromContent(raw: string): string[] {
+  const match = raw.match(/PROMOTION_PROPOSAL:\s*(\{[\s\S]*\})/);
+  if (!match) return [];
+  try {
+    const proposal = JSON.parse(match[1]) as { agent_scores?: { agent: string }[] };
+    const scores = proposal.agent_scores;
+    if (!Array.isArray(scores)) return [];
+    const names = scores.map((s) => s.agent).filter(Boolean);
+    // Sort by canonical order; unknown agents go to the end
+    return names.sort((a, b) => {
+      const ai = AGENT_ORDER.indexOf(a);
+      const bi = AGENT_ORDER.indexOf(b);
+      if (ai === -1 && bi === -1) return 0;
+      if (ai === -1) return 1;
+      if (bi === -1) return -1;
+      return ai - bi;
+    });
+  } catch {
+    return [];
+  }
 }
 
 // ── Content cleaner ───────────────────────────────────────────────────────────
@@ -106,7 +150,7 @@ export function AgentChat({ agentName, initialMessage, placeholder, started = fa
   // isWaiting: true from the moment send() fires until playback animation finishes.
   //   The proxy buffers all SSE until the run completes, so isStreaming stays false
   //   during the entire agent run. isWaiting lets us show the feed regardless.
-  // allAgents: full ordered list extracted from the event batch when it arrives
+  // allAgents: ordered list parsed from PROMOTION_PROPOSAL.agent_scores in content
   // visibleCount: how many rows are currently shown (animated up one at a time)
   const [isWaiting, setIsWaiting] = useState(false);
   const [allAgents, setAllAgents] = useState<string[]>([]);
@@ -124,46 +168,23 @@ export function AgentChat({ agentName, initialMessage, placeholder, started = fa
   const resetRef = useRef<(() => void) | null>(null);
   const seededRef = useRef(false);
 
-  // ── Collect agent names from every event batch ────────────────────────────
-  const lastProcessedEventIdx = useRef(0);
-
-  const handleEvent = (event: AgentChatEvent) => {
-    if (
-      event.type === 'response.output_item.added' &&
-      event.item?.type === 'function_call' &&
-      event.item.name?.startsWith('agent-')
-    ) {
-      const name = event.item.name;
-      setAllAgents((prev) => prev.includes(name) ? prev : [...prev, name]);
-    }
-  };
-
-  const { content, events, isStreaming, error, send, reset } = useAgentChat({
+  const { content, isStreaming, error, send, reset } = useAgentChat({
     agent: activeAgent ?? '',
-    onEvent: handleEvent,
   });
 
   sendRef.current = send;
   resetRef.current = reset;
 
-  // Secondary path: scan new events for function_call items
+  // ── Extract agent names from content once PROMOTION_PROPOSAL appears ──────
+  // The events array is never populated by the SDK (proxy buffers everything),
+  // so we parse agent_scores out of the PROMOTION_PROPOSAL block in content instead.
   useEffect(() => {
-    const newEvents = events.slice(lastProcessedEventIdx.current);
-    lastProcessedEventIdx.current = events.length;
-    for (const event of newEvents) {
-      if (
-        event.type === 'response.output_item.added' &&
-        event.item?.type === 'function_call' &&
-        event.item.name?.startsWith('agent-')
-      ) {
-        const name = event.item.name as string;
-        setAllAgents((prev) => prev.includes(name) ? prev : [...prev, name]);
-      }
-    }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [events]);
+    if (allAgents.length > 0) return; // already extracted
+    const agents = extractAgentsFromContent(content);
+    if (agents.length > 0) setAllAgents(agents);
+  }, [content, allAgents.length]);
 
-  // ── Playback animation: when allAgents grows, step visibleCount up one at a time
+  // ── Playback animation: step visibleCount up one at a time ────────────────
   useEffect(() => {
     if (allAgents.length === 0) return;
     if (visibleCount >= allAgents.length) return; // done — dedicated effect below handles clearing
@@ -174,12 +195,7 @@ export function AgentChat({ agentName, initialMessage, placeholder, started = fa
     return () => { if (playbackTimerRef.current) clearTimeout(playbackTimerRef.current); };
   }, [allAgents, visibleCount]);
 
-  // Clear isWaiting only when:
-  //   (a) send() has resolved (sendInFlightRef.current === false), AND
-  //   (b) streaming has finished, AND
-  //   (c) either there are no agent rows (non-supervisor run) or playback is done.
-  // This prevents the 0>=0 race where allAgents is still [] when the effect first
-  // fires and immediately kills the feed before the batch has been processed.
+  // ── Clear isWaiting once send resolves, streaming ends, and playback is done
   useEffect(() => {
     if (sendInFlightRef.current) return;   // send still in-flight — never clear early
     if (isStreaming) return;               // streaming still active
@@ -209,7 +225,6 @@ export function AgentChat({ agentName, initialMessage, placeholder, started = fa
     setIsWaiting(true);
     setAllAgents([]);
     setVisibleCount(0);
-    lastProcessedEventIdx.current = 0;
   };
 
   useEffect(() => {
