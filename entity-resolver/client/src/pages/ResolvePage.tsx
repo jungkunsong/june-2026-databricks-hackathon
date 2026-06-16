@@ -556,7 +556,7 @@ export function ResolvePage() {
   if (error || !clusterId) {
     return (
       <div className="space-y-4">
-        <Link to="/" className="flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground">
+        <Link to="/queue" className="flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground">
           <ArrowLeft className="h-3.5 w-3.5" /> Back to queue
         </Link>
         <div className="rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
@@ -577,7 +577,7 @@ export function ResolvePage() {
       <div className="flex items-center justify-between flex-shrink-0">
         <div className="flex items-center gap-3">
           <button
-            onClick={() => navigate('/')}
+            onClick={() => navigate('/queue')}
             className="flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground"
           >
             <ArrowLeft className="h-3.5 w-3.5" /> Queue
@@ -812,7 +812,7 @@ export function ResolvePage() {
                     View in Decisions →
                   </button>
                   <button
-                    onClick={() => navigate('/', { state: { resolvedClusterId: clusterId } })}
+                    onClick={() => navigate('/queue', { state: { resolvedClusterId: clusterId } })}
                     className="text-xs text-muted-foreground hover:underline font-medium"
                   >
                     ← Back to queue

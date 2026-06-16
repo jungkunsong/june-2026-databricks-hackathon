@@ -1,7 +1,8 @@
 import { createBrowserRouter, RouterProvider, NavLink, Outlet } from 'react-router';
 import { useState } from 'react';
 import { Sheet, SheetContent, SheetHeader, SheetTitle, useIsMobile } from '@databricks/appkit-ui/react';
-import { Menu, Activity, CheckCircle2, ListChecks } from 'lucide-react';
+import { Menu, Activity, CheckCircle2, ListChecks, LayoutDashboard } from 'lucide-react';
+import { DashboardPage } from './pages/DashboardPage';
 import { QueuePage } from './pages/QueuePage';
 import { ResolvePage } from './pages/ResolvePage';
 import { DecisionsPage } from './pages/DecisionsPage';
@@ -27,6 +28,10 @@ function Layout() {
   const navItems = (linkClass: typeof navLinkClass) => (
     <>
       <NavLink to="/" end className={linkClass}>
+        <LayoutDashboard className="h-4 w-4" />
+        Overview
+      </NavLink>
+      <NavLink to="/queue" className={linkClass}>
         <ListChecks className="h-4 w-4" />
         Resolution Queue
       </NavLink>
@@ -92,7 +97,8 @@ const router = createBrowserRouter([
     path: '/',
     element: <Layout />,
     children: [
-      { index: true, element: <QueuePage /> },
+      { index: true, element: <DashboardPage /> },
+      { path: 'queue', element: <QueuePage /> },
       { path: 'resolve/:clusterId', element: <ResolvePage /> },
       { path: 'decisions', element: <DecisionsPage /> },
     ],
