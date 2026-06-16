@@ -24,6 +24,7 @@ import { AgentChat } from './agents/AgentChat';
 // ── Types ─────────────────────────────────────────────────────────────────────
 
 export interface FieldProposal {
+  field: string;
   label: string;
   value: string | number | null;
   old_value?: string | null;
