@@ -64,6 +64,43 @@ Agents must **reason about edge cases** rather than defaulting to 0 for anything
 
 ---
 
+## Entity Resolver
+
+**`entity-resolver/`** is a Databricks App that gives non-technical reviewers an AI-powered interface to verify and promote raw facility records into a clean, trusted resolved table.
+
+### What It Does
+
+Raw facility records in `facilities_raw` are incomplete, inconsistent, and unverified — not just in contact details, but in clinical data (specialties, equipment, procedures) that downstream consumers rely on for patient routing and access modeling. Entity Resolver surfaces these issues in plain language so a reviewer without a data engineering background can make confident, informed decisions.
+
+### Workflow
+
+1. Reviewer selects a facility record from the queue
+2. Reviewer clicks **"AI Agent Verification"** to initiate the session
+3. A **Supervisor agent** reads the record and dispatches validator sub-agents in parallel
+4. Each sub-agent independently verifies one dimension (website, phone, location, Facebook, etc.) and reports back **only to the Supervisor**
+5. The Supervisor interrogates findings, resolves conflicts, and rejects inconclusive results before surfacing anything to the user
+6. Approved findings — each with attached reasoning — are presented to the reviewer; unresolvable fields are marked **"unable to validate"**
+7. Reviewer approves or modifies the resolution
+8. Record is promoted from `facilities_raw` to `facilities_resolved` with clean, validated field values
+9. Supervisor writes a decision log entry documenting what was verified, what was corrected, and why
+
+### Key Principles
+
+- **Explicitly initiated**: verification never starts automatically on record selection
+- **Supervisor as gatekeeper**: no raw sub-agent output ever reaches the user
+- **Human in control**: agents advise, the reviewer approves
+- **No silent drops**: fields the Supervisor cannot validate are surfaced as "unable to validate" with an explanation
+
+### Tech Stack
+
+- **Frontend**: React, TypeScript, Vite, Tailwind CSS, shadcn/ui
+- **Backend**: Node.js, Express
+- **Platform**: Databricks AppKit (Lakebase plugin for OLTP storage)
+
+See [`entity-resolver/README.md`](entity-resolver/README.md) for setup and deployment instructions.
+
+---
+
 ## Setup
 
 ```bash
