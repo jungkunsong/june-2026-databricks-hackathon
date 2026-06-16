@@ -17,7 +17,6 @@ import {
   BookOpen,
   Star,
   Copy,
-  Search,
   GitMerge,
   Brain,
 } from 'lucide-react';
@@ -279,23 +278,59 @@ export function DashboardPage() {
           </button>
         </div>
 
-        {/* Pipeline overview strip */}
-        <div className="mt-6 pt-5 border-t border-border flex flex-wrap items-center gap-2 text-[11px] font-medium text-muted-foreground">
-          <span className="flex items-center gap-1.5 rounded-full bg-muted px-3 py-1">
-            <Search className="h-3 w-3" /> Evidence fetcher
-          </span>
-          <ArrowRight className="h-3 w-3 text-border flex-shrink-0" />
-          <span className="flex items-center gap-1.5 rounded-full bg-muted px-3 py-1">
-            <Brain className="h-3 w-3" /> 7 parallel sub-agents
-          </span>
-          <ArrowRight className="h-3 w-3 text-border flex-shrink-0" />
-          <span className="flex items-center gap-1.5 rounded-full bg-muted px-3 py-1">
-            <GitMerge className="h-3 w-3" /> Supervisor synthesis
-          </span>
-          <ArrowRight className="h-3 w-3 text-border flex-shrink-0" />
-          <span className="flex items-center gap-1.5 rounded-full bg-[#FF3621]/10 text-[#FF3621] px-3 py-1 border border-[#FF3621]/20">
-            <ShieldCheck className="h-3 w-3" /> Promotion proposal
-          </span>
+        {/* Graphical workflow */}
+        <div className="mt-6 pt-6 border-t border-border">
+          <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
+
+            {/* Step 1 */}
+            <div className="flex-1 rounded-xl bg-[#0B2026] px-5 py-4 flex flex-col gap-2">
+              <div className="flex items-center gap-2">
+                <div className="flex h-7 w-7 items-center justify-center rounded-full bg-white/10">
+                  <Layers className="h-3.5 w-3.5 text-white" />
+                </div>
+                <span className="text-[10px] font-semibold uppercase tracking-widest text-white/50">Step 1</span>
+              </div>
+              <p className="text-sm font-bold text-white leading-snug">Pick one or more facilities</p>
+              <p className="text-[11px] text-white/60 leading-relaxed">Select from the queue — each entry is a group of duplicate or conflicting records.</p>
+            </div>
+
+            {/* Arrow */}
+            <div className="flex sm:flex-col items-center justify-center px-1">
+              <ArrowRight className="h-5 w-5 text-border hidden sm:block" />
+              <div className="h-5 w-px bg-border block sm:hidden mx-auto" />
+            </div>
+
+            {/* Step 2 */}
+            <div className="flex-1 rounded-xl bg-[#FF3621]/8 border border-[#FF3621]/20 px-5 py-4 flex flex-col gap-2">
+              <div className="flex items-center gap-2">
+                <div className="flex h-7 w-7 items-center justify-center rounded-full bg-[#FF3621]/15">
+                  <Brain className="h-3.5 w-3.5 text-[#FF3621]" />
+                </div>
+                <span className="text-[10px] font-semibold uppercase tracking-widest text-[#FF3621]/70">Step 2</span>
+              </div>
+              <p className="text-sm font-bold text-[#0B2026] leading-snug">AI agents validate</p>
+              <p className="text-[11px] text-muted-foreground leading-relaxed">7 sub-agents run in parallel — website, contacts, location, social, context, source authority, and duplicates.</p>
+            </div>
+
+            {/* Arrow */}
+            <div className="flex sm:flex-col items-center justify-center px-1">
+              <ArrowRight className="h-5 w-5 text-border hidden sm:block" />
+              <div className="h-5 w-px bg-border block sm:hidden mx-auto" />
+            </div>
+
+            {/* Step 3 */}
+            <div className="flex-1 rounded-xl bg-green-50 border border-green-200 px-5 py-4 flex flex-col gap-2">
+              <div className="flex items-center gap-2">
+                <div className="flex h-7 w-7 items-center justify-center rounded-full bg-green-100">
+                  <ShieldCheck className="h-3.5 w-3.5 text-green-600" />
+                </div>
+                <span className="text-[10px] font-semibold uppercase tracking-widest text-green-600/70">Step 3</span>
+              </div>
+              <p className="text-sm font-bold text-[#0B2026] leading-snug">You approve</p>
+              <p className="text-[11px] text-muted-foreground leading-relaxed">Review the AI's proposal and confidence score, then promote a clean record — or defer for manual review.</p>
+            </div>
+
+          </div>
         </div>
       </div>
 
@@ -363,7 +398,7 @@ export function DashboardPage() {
           <h2 className="text-sm font-semibold text-[#0B2026]">How it works</h2>
           <ol className="space-y-3">
             {[
-              { icon: Layers,      color: 'text-amber-600 bg-amber-50',   step: '1', title: 'Pick a cluster', body: 'Open a group of duplicate or conflicting facility records from the queue.' },
+              { icon: Layers,      color: 'text-amber-600 bg-amber-50',   step: '1', title: 'Pick one or more facilities', body: 'Open a group of duplicate or conflicting facility records from the queue.' },
               { icon: Sparkles,    color: 'text-blue-600 bg-blue-50',     step: '2', title: 'AI runs validation', body: '7 sub-agents verify website, contacts, location, social, context, source authority, and duplicates in parallel.' },
               { icon: GitMerge,    color: 'text-purple-600 bg-purple-50', step: '3', title: 'Review the proposal', body: 'See per-agent scores and a confidence rating. Edit fields or add notes.' },
               { icon: ShieldCheck, color: 'text-green-600 bg-green-50',   step: '4', title: 'Approve or defer', body: 'Promote a clean record to the resolved dataset, or defer for manual review.' },
