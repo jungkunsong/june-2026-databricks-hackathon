@@ -113,6 +113,8 @@ export function AgentChat({ agentName, initialMessage, placeholder, started = fa
   const [visibleCount, setVisibleCount] = useState(0);
   // playback timer ref so we can clear it on reset
   const playbackTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // true while send() is in-flight (proxy is buffering); set false when send() resolves
+  const sendInFlightRef = useRef(false);
 
   useEffect(() => {
     onMessagesChange?.(messages.map((m) => ({ role: m.role, content: m.content })));
@@ -164,23 +166,25 @@ export function AgentChat({ agentName, initialMessage, placeholder, started = fa
   // ── Playback animation: when allAgents grows, step visibleCount up one at a time
   useEffect(() => {
     if (allAgents.length === 0) return;
-    if (visibleCount >= allAgents.length) {
-      // Animation done — if streaming is also finished, clear waiting
-      if (!isStreaming) setIsWaiting(false);
-      return;
-    }
+    if (visibleCount >= allAgents.length) return; // done — dedicated effect below handles clearing
     if (playbackTimerRef.current) clearTimeout(playbackTimerRef.current);
     playbackTimerRef.current = setTimeout(() => {
       setVisibleCount((c) => Math.min(c + 1, allAgents.length));
     }, PLAYBACK_STEP_MS);
     return () => { if (playbackTimerRef.current) clearTimeout(playbackTimerRef.current); };
-  }, [allAgents, visibleCount, isStreaming]);
+  }, [allAgents, visibleCount]);
 
-  // When streaming ends and playback is already complete, clear waiting
+  // Clear isWaiting only when:
+  //   (a) send() has resolved (sendInFlightRef.current === false), AND
+  //   (b) streaming has finished, AND
+  //   (c) either there are no agent rows (non-supervisor run) or playback is done.
+  // This prevents the 0>=0 race where allAgents is still [] when the effect first
+  // fires and immediately kills the feed before the batch has been processed.
   useEffect(() => {
-    if (!isStreaming && visibleCount >= allAgents.length && allAgents.length > 0) {
-      setIsWaiting(false);
-    }
+    if (sendInFlightRef.current) return;   // send still in-flight — never clear early
+    if (isStreaming) return;               // streaming still active
+    if (allAgents.length > 0 && visibleCount < allAgents.length) return; // playback not done
+    setIsWaiting(false);
   }, [isStreaming, visibleCount, allAgents.length]);
 
   useEffect(() => { onStreamingChange?.(isStreaming); }, [isStreaming, onStreamingChange]);
@@ -223,6 +227,7 @@ export function AgentChat({ agentName, initialMessage, placeholder, started = fa
     setPendingAssistantId(assistantId);
     const trySend = async (attemptsLeft: number): Promise<void> => {
       try {
+        sendInFlightRef.current = true;
         await sendRef.current!(msg);
         sendDoneRef.current = true;
       } catch (err) {
@@ -231,10 +236,11 @@ export function AgentChat({ agentName, initialMessage, placeholder, started = fa
           await new Promise((r) => setTimeout(r, (4 - attemptsLeft) * 3000));
           await trySend(attemptsLeft - 1);
         } else { throw err; }
+      } finally {
+        sendInFlightRef.current = false;
       }
     };
     void trySend(3);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [started, activeAgent, initialMessage]);
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -250,7 +256,12 @@ export function AgentChat({ agentName, initialMessage, placeholder, started = fa
       { id: assistantId, role: 'assistant', content: '' },
     ]);
     setPendingAssistantId(assistantId);
-    await send(message);
+    sendInFlightRef.current = true;
+    try {
+      await send(message);
+    } finally {
+      sendInFlightRef.current = false;
+    }
     sendDoneRef.current = true;
   };
 
