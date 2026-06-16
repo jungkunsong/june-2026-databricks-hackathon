@@ -5,7 +5,7 @@ import type { LakebaseHandle } from '../../plugin-handles';
 // initSchema only runs CREATE TABLE IF NOT EXISTS — never CREATE SCHEMA.
 //
 // Data flow:
-//   virtue_foundation_dataset.facilities_raw   ← read-only source
+//   virtue_foundation_dataset.facilities   ← read-only source
 //     └─ app.facilities_resolved               ← promoted records written by the supervisor agent
 //         └─ app.decision_log                  ← append-only audit trail, one row per promotion
 

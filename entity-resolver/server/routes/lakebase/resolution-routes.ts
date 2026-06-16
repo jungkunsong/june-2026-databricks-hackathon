@@ -57,7 +57,7 @@ export function setupResolutionRoutes(lb: LakebaseHandle, srv: ServerHandle) {
         // Resolve cluster_id → raw_row_id (use the first/representative record)
         const lookup = await lb.query<{ row_id: number; name: string }>(`
           SELECT row_id, name
-          FROM virtue_foundation_dataset.facilities_raw
+          FROM virtue_foundation_dataset.facilities
           WHERE cluster_id = $1
           ORDER BY row_id ASC
           LIMIT 1

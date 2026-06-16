@@ -1,6 +1,6 @@
 /**
  * Facilities routes — query Lakebase directly.
- * The raw facilities data lives in virtue_foundation_dataset.facilities_raw,
+ * The raw facilities data lives in virtue_foundation_dataset.facilities,
  * copied there once by the sync notebook.
  */
 import type { LakebaseHandle, ServerHandle } from '../plugin-handles';
@@ -44,7 +44,7 @@ export function setupFacilitiesRoutes(lb: LakebaseHandle, srv: ServerHandle) {
         }
         const result = await lb.query(`
           SELECT COUNT(DISTINCT cluster_id) AS total
-          FROM virtue_foundation_dataset.facilities_raw
+          FROM virtue_foundation_dataset.facilities
           ${where}
         `, params);
         res.json({ total: Number(result.rows[0]?.total ?? 0) });
@@ -93,7 +93,7 @@ export function setupFacilitiesRoutes(lb: LakebaseHandle, srv: ServerHandle) {
           WITH ranked AS (
             SELECT *,
                    ROW_NUMBER() OVER (PARTITION BY cluster_id ORDER BY row_id ASC) AS rn
-            FROM virtue_foundation_dataset.facilities_raw
+            FROM virtue_foundation_dataset.facilities
             WHERE cluster_id IS NOT NULL
             ${nameFilter}
             ${resolvedExclusion}
@@ -114,7 +114,7 @@ export function setupFacilitiesRoutes(lb: LakebaseHandle, srv: ServerHandle) {
             SELECT cluster_id,
                    COUNT(*) AS record_count,
                    ARRAY_AGG(DISTINCT source_types) FILTER (WHERE source_types IS NOT NULL) AS sources
-            FROM virtue_foundation_dataset.facilities_raw
+            FROM virtue_foundation_dataset.facilities
             WHERE cluster_id IS NOT NULL
             ${nameFilter}
             ${resolvedExclusion}
@@ -156,7 +156,7 @@ export function setupFacilitiesRoutes(lb: LakebaseHandle, srv: ServerHandle) {
             phone_numbers, email, websites,
             "numberDoctors", capacity, description,
             "yearEstablished", "acceptsVolunteers"
-          FROM virtue_foundation_dataset.facilities_raw
+          FROM virtue_foundation_dataset.facilities
           WHERE cluster_id = $1
           ORDER BY row_id ASC
         `, [req.params.clusterId]);
@@ -182,7 +182,7 @@ export function setupFacilitiesRoutes(lb: LakebaseHandle, srv: ServerHandle) {
                  phone_numbers, websites, "facebookLink",
                  latitude, longitude,
                  address_city, "address_stateOrRegion", "address_zipOrPostcode"
-          FROM virtue_foundation_dataset.facilities_raw
+          FROM virtue_foundation_dataset.facilities
           WHERE row_id = $1
         `, [rowId]);
 
@@ -246,7 +246,7 @@ export function setupFacilitiesRoutes(lb: LakebaseHandle, srv: ServerHandle) {
                  phone_numbers, websites, "facebookLink",
                  latitude, longitude,
                  address_city, "address_stateOrRegion", "address_zipOrPostcode"
-          FROM virtue_foundation_dataset.facilities_raw
+          FROM virtue_foundation_dataset.facilities
           WHERE row_id <> $1
             AND (${conditions.join(' OR ')})
           ORDER BY name ASC
@@ -270,7 +270,7 @@ export function setupFacilitiesRoutes(lb: LakebaseHandle, srv: ServerHandle) {
         const rowId = parseInt(req.params.rowId, 10);
         if (isNaN(rowId)) { res.status(400).json({ error: 'Invalid row_id' }); return; }
         const result = await lb.query(`
-          SELECT * FROM virtue_foundation_dataset.facilities_raw
+          SELECT * FROM virtue_foundation_dataset.facilities
           WHERE row_id = $1
         `, [rowId]);
         if (result.rows.length === 0) { res.status(404).json({ error: 'Not found' }); return; }
