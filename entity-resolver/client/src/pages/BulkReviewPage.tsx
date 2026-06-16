@@ -83,7 +83,6 @@ interface ClusterPanelProps {
 
 function ClusterPanel({
   item,
-  records: _records,
   initialMessage,
   agentStarted,
   onApprove,
@@ -635,7 +634,6 @@ export function BulkReviewPage() {
 
                 <ClusterPanel
                   item={activeItem!}
-                  records={records}
                   initialMessage={initialMessage}
                   agentStarted={agentStarted}
                   onApprove={handleApprove}
