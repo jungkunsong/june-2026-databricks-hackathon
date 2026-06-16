@@ -70,7 +70,6 @@ function StatusBadge({ status }: { status: ItemStatus }) {
 
 interface ClusterPanelProps {
   item: BulkItem;
-  records: FacilityRecord[];
   initialMessage: string;
   agentStarted: boolean;
   onApprove: (decisions: Record<string, FieldDecision>, humanNotes: string) => Promise<void>;
