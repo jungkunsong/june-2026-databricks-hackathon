@@ -6,6 +6,7 @@ import { DashboardPage } from './pages/DashboardPage';
 import { QueuePage } from './pages/QueuePage';
 import { ResolvePage } from './pages/ResolvePage';
 import { DecisionsPage } from './pages/DecisionsPage';
+import { BulkReviewPage } from './pages/BulkReviewPage';
 
 const navLinkClass = ({ isActive }: { isActive: boolean }) =>
   `flex items-center gap-2 px-3 py-1.5 rounded-md text-sm font-medium transition-colors ${
@@ -100,6 +101,7 @@ const router = createBrowserRouter([
       { index: true, element: <DashboardPage /> },
       { path: 'queue', element: <QueuePage /> },
       { path: 'resolve/:clusterId', element: <ResolvePage /> },
+      { path: 'bulk-review', element: <BulkReviewPage /> },
       { path: 'decisions', element: <DecisionsPage /> },
     ],
   },
