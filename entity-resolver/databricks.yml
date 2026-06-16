@@ -1,5 +1,5 @@
 bundle:
-  name: entity-resolver
+  name: facility-trust-os
 
 variables:
   agents_serving_endpoint_name:
@@ -14,8 +14,8 @@ variables:
 resources:
   apps:
     app:
-      name: "entity-resolver"
-      description: "A Databricks App powered by AppKit"
+      name: "facility-trust-os"
+      description: "Facility Trust Operating System — medical facility record verification"
       source_code_path: ./
       # Uncomment to enable on behalf of user API scopes. Available scopes: sql, dashboards.genie, files.files, serving.serving-endpoints
       # user_api_scopes:
