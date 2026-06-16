@@ -270,7 +270,7 @@ export function AgentChat({ agentName, initialMessage, placeholder, started = fa
             onChange={(e) => setInput(e.target.value)}
             placeholder={placeholder ?? (activeAgent ? 'Reply to Supervisor…' : 'No agents registered')}
             disabled={!activeAgent || isStreaming}
-            className="flex-1 text-sm"
+            className="flex-1 text-sm text-[#0B2026] bg-white placeholder:text-muted-foreground"
           />
           <button
             type="submit"
