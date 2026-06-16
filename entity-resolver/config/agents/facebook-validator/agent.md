@@ -1,1 +1,0 @@
-social_score = social_presence_score (0–16) + fb_validation_score (0–4)
