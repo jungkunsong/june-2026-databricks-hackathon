@@ -262,9 +262,7 @@ export function DashboardPage() {
               </p>
             </div>
             <p className="mt-1.5 text-sm text-muted-foreground max-w-2xl leading-relaxed">
-              A multi-agent AI pipeline that resolves, validates, and deduplicates Indian medical facility records
-              at scale — combining live web signals, geospatial checks, and clinical context scoring to produce
-              a trusted, production-ready dataset.
+              A multi-agent AI workflow that validates, resolves, and deduplicates medical facility records at scale. Combining live web signals, geospatial checks, and clinical context to produce a trusted dataset.
             </p>
           </div>
           <button
