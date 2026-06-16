@@ -1,50 +1,80 @@
 # Source Authority Validation
 
-Scores each facility's `source_urls` array by the authority of the domains it references, producing a **domain authority score** that reflects how well-evidenced the facility record is.
+> **Agent:** `SourceAuthorityAgent`
+> **Rubric role:** The SQL below is for data retrieval only. Tier classification and scoring are applied by the agent after fetching the domains. The listed domains are **examples, not an exhaustive allowlist** — the agent must classify any unlisted domain by reasoning about its nature rather than defaulting to Tier 6. See [Agent Judgment Guidelines](#agent-judgment-guidelines).
+
+Scores each facility's `source_urls` array by the authority of the domains it references, producing a **domain authority score (0–20)** that reflects how well-evidenced the facility record is.
 
 When a facility has multiple source URLs, the score is the **highest tier weight among all URLs** — i.e. a facility is only as authoritative as its best source. A single Wikipedia link outweighs ten JustDial entries.
 
 ## Approach
 
-Each URL in `source_urls` is parsed to extract its domain, which is then mapped to a tier. The per-facility score is the **highest tier weight across all URLs** — the best source wins. This prevents a facility with many low-quality links from outscoring one with a single authoritative reference.
+The agent fetches all URLs from `source_urls`, extracts each domain, classifies it into a tier, and takes the highest tier weight as the score. For any domain not in the explicit example lists, the agent classifies it by reasoning about the domain's purpose before assigning a tier.
 
 ### Domain Tier Classification
 
-Tiers are derived from the actual domain distribution in `workspace.default.facilities` (top 50 domains by facility coverage, June 2026).
+Tiers are derived from the actual domain distribution in `workspace.default.facilities` (top 50 domains by facility coverage, June 2026). The listed domains are **examples per tier, not an exhaustive allowlist**.
 
-| Tier | Weight | Criteria | Examples from dataset |
+| Tier | Anchor score | Criteria | Example domains from dataset |
 |---|---|---|---|
-| **1 — Authoritative** | 5 | Government, academic, or globally recognised health bodies | `*.gov`, `*.gov.in`, `who.int`, `en.wikipedia.org`, `pmc.ncbi.nlm.nih.gov`, `pubmed.ncbi.nlm.nih.gov` |
-| **2 — Professional / Official** | 4 | The facility's own domain, or verified professional networks | `in.linkedin.com`, facility-owned domains (matched against `officialWebsite`) |
-| **3 — Healthcare directories** | 3 | Established India-specific healthcare listing platforms | `www.practo.com`, `www.lybrate.com`, `www.medindia.net`, `www.hexahealth.com`, `www.myupchar.com`, `www.docindia.org`, `www.medicineindia.org`, `www.clinicspots.com`, `www.bajajfinservhealth.in`, `www.healthfrog.in`, `www.drlogy.com`, `www.sehat.com`, `www.skedoc.com`, `www.eka.care`, `www.whatclinic.com` |
-| **4 — General directories / aggregators** | 2 | High-traffic local business directories, insurance portals, map services | `www.justdial.com`, `www.indiamart.com`, `dir.indiamart.com`, `www.sulekha.com`, `www.grotal.com`, `www.mappls.com`, `mapcarta.com`, `www.latlong.net`, `www.zoominfo.com`, `www.zaubacorp.com`, `www.joonsquare.com`, `bdir.in`, `www.diagnosticcentres.in`, `www.cardiologistindia.com`, `www.healthinsuranceindia.org`, `www.policybazaar.com`, `www.policyx.com`, `www.insurancedekho.com`, `www.iffcotokio.co.in`, `www.newindia.co.in`, `www.cashlesshospitalindia.com`, `chotu.com`, `watchdoq.com`, `kivihealth.com`, `www.scribd.com` |
-| **5 — Social media** | 1 | Social platforms — confirms online presence but low evidential value | `www.facebook.com`, `www.instagram.com` |
-| **6 — Unknown** | 0 | Any domain not matching the above tiers | everything else |
+| **1 — Authoritative** | 20 | Government, academic, or globally recognised health bodies | `*.gov`, `*.gov.in`, `who.int`, `en.wikipedia.org`, `pmc.ncbi.nlm.nih.gov`, `pubmed.ncbi.nlm.nih.gov` |
+| **2 — Professional / Official** | 16 | The facility's own domain, or verified professional networks | `in.linkedin.com`, facility-owned domains (matched against `officialWebsite`) |
+| **3 — Healthcare directories** | 12 | Established healthcare listing or information platforms | `www.practo.com`, `www.lybrate.com`, `www.medindia.net`, `www.hexahealth.com`, `www.myupchar.com`, `www.docindia.org`, `www.medicineindia.org`, `www.clinicspots.com`, `www.bajajfinservhealth.in`, `www.healthfrog.in`, `www.drlogy.com`, `www.sehat.com`, `www.skedoc.com`, `www.eka.care`, `www.whatclinic.com` |
+| **4 — General directories / aggregators** | 8 | High-traffic local business directories, insurance portals, map services | `www.justdial.com`, `www.indiamart.com`, `dir.indiamart.com`, `www.sulekha.com`, `www.grotal.com`, `www.mappls.com`, `mapcarta.com`, `www.latlong.net`, `www.zoominfo.com`, `www.zaubacorp.com`, `www.joonsquare.com`, `bdir.in`, `www.diagnosticcentres.in`, `www.cardiologistindia.com`, `www.healthinsuranceindia.org`, `www.policybazaar.com`, `www.policyx.com`, `www.insurancedekho.com`, `www.iffcotokio.co.in`, `www.newindia.co.in`, `www.cashlesshospitalindia.com`, `chotu.com`, `watchdoq.com`, `kivihealth.com`, `www.scribd.com` |
+| **5 — Social media** | 4 | Social platforms — confirms online presence but low evidential value | `www.facebook.com`, `www.instagram.com`, `twitter.com`, `x.com`, `www.youtube.com` |
+| **6 — Irrelevant / noise** | 0 | Domains with no plausible connection to healthcare facility evidence | Real-estate portals, unrelated e-commerce, clearly misrouted pipeline data |
 
-> **Note on `www.proptiger.com`:** A real-estate portal appearing in ~1,141 facility records. Treat as Tier 6 (Unknown/irrelevant) — its presence likely indicates a data pipeline issue rather than a legitimate source.
+> **Note on `www.proptiger.com`:** A real-estate portal appearing in ~1,141 facility records. Treat as Tier 6 — its presence at scale indicates a data pipeline issue, not a legitimate source.
 
 ### Scoring Formula
 
 ```
-domain_authority_score = MAX(tier_weight) across all URLs in source_urls
+domain_authority_score = MAX(tier_score) across all URLs in source_urls
 ```
 
-The score is already on the tier weight scale (0–5), so no normalisation is needed. A facility with any Tier 1 URL scores 5 regardless of how many Tier 4/5 URLs it also has.
+The score is a continuous **0–20** value. The tier anchor scores (20, 16, 12, 8, 4, 0) are calibrated reference points — the agent may assign any integer in that range when a domain sits between tiers or when additional context warrants it. For example, a healthcare directory that is clearly lower-quality than Practo but not as generic as JustDial might score 10 rather than 12 or 8.
 
-| Score | Tier |
+| Anchor | Tier |
 |---|---|
-| 5 | Best source is Authoritative (gov, WHO, Wikipedia, PubMed) |
-| 4 | Best source is Professional / Official (LinkedIn, own website) |
-| 3 | Best source is a Healthcare directory |
-| 2 | Best source is a General directory / aggregator |
-| 1 | Best source is Social media only |
-| 0 | All sources are Unknown / irrelevant |
+| 20 | Best source is Authoritative (gov, WHO, Wikipedia, PubMed) |
+| 16 | Best source is Professional / Official (LinkedIn, own website) |
+| 12 | Best source is a Healthcare directory |
+| 8 | Best source is a General directory / aggregator |
+| 4 | Best source is Social media only |
+| 0 | All sources are irrelevant / noise |
 
-A facility with a Wikipedia link and ten JustDial links scores **5**, not 25.
+A facility with a Wikipedia link and ten JustDial links scores **20**, not 28.
 
 ---
 
-## SQL Implementation
+## Agent Judgment Guidelines
+
+The SQL tier classification covers known domains. For anything not listed, the agent must reason about the domain rather than defaulting to Tier 6:
+
+1. **Check TLD and domain name for structural signals first:** `.gov`, `.gov.in`, `.ac.in`, `.nhs.uk`, `.edu` → Tier 1. A domain matching `officialWebsite` for this facility → Tier 2. A domain whose name clearly identifies it as a healthcare listing platform → Tier 3.
+
+2. **Assess the domain's apparent purpose:** Does it exist to list or verify healthcare facilities? → Tier 3. Does it list all kinds of local businesses? → Tier 4. Is it a news or media outlet that published an article about this facility? → Tier 3 (editorial mention has similar evidential value to a directory listing). Is it a map or location service? → Tier 4. Is it a social platform? → Tier 5. Is it completely unrelated to healthcare, business listings, or location? → Tier 6.
+
+3. **Tier 6 is reserved for actively irrelevant domains**, not for domains that are simply unfamiliar. An unknown domain that plausibly references the facility should receive at minimum Tier 4 (8 pts).
+
+4. **Scores are continuous (0–20), not locked to tier anchors.** The anchor scores (20, 16, 12, 8, 4, 0) are calibrated starting points. The agent may assign any integer when a domain sits between tiers or when context warrants it — for example, a niche healthcare directory that is less established than Practo might score 10, or a government-adjacent but non-authoritative source might score 18.
+
+5. **Log every unlisted domain** and the assigned score in the rationale field so the supervisory agent can update the tier list over time.
+
+**Examples of agent judgment calls:**
+- `www.apollohospitals.com` — major hospital chain's own domain, matches `officialWebsite` pattern → Tier 2 (16 pts)
+- `timesofindia.indiatimes.com` — news site with an article about this facility → Tier 3 (12 pts)
+- `maps.google.com` — map/location service, same nature as `www.mappls.com` → Tier 4 (8 pts)
+- `www.nhp.gov.in` — Indian government health portal, matches `*.gov.in` → Tier 1 (20 pts)
+- `www.amazon.in` — e-commerce, no healthcare relevance → Tier 6 (0 pts)
+- `www.proptiger.com` — real-estate portal → Tier 6 (0 pts), flag as pipeline issue
+- `www.smallhealthblog.in` — obscure health blog, not a directory but loosely relevant → between Tier 4 and 5, agent assigns 6
+
+---
+
+## SQL — Data Retrieval
+
+The agent uses this query to fetch raw domain data. Tier classification and scoring happen in the agent after retrieval, not inside the SQL.
 
 ```sql
 WITH urls AS (
@@ -67,76 +97,35 @@ domains AS (
     regexp_extract(url, '^https?://([^/]+)', 1) AS domain
   FROM urls
   WHERE url != ''
-),
-
-tiered AS (
-  SELECT
-    unique_id,
-    name,
-    domain,
-    CASE
-      -- Tier 1: Authoritative
-      WHEN domain RLIKE '.*\\.gov(\\.in)?$'
-        OR domain IN ('who.int', 'en.wikipedia.org', 'pmc.ncbi.nlm.nih.gov', 'pubmed.ncbi.nlm.nih.gov')
-        THEN 5
-      -- Tier 2: Professional / Official
-      WHEN domain = 'in.linkedin.com'
-        OR domain = regexp_extract(officialWebsite, '^https?://([^/]+)', 1)
-        THEN 4
-      -- Tier 3: Healthcare directories
-      WHEN domain IN (
-        'www.practo.com', 'www.lybrate.com', 'www.medindia.net', 'www.hexahealth.com',
-        'www.myupchar.com', 'www.docindia.org', 'www.medicineindia.org', 'www.clinicspots.com',
-        'www.bajajfinservhealth.in', 'www.healthfrog.in', 'www.drlogy.com', 'www.sehat.com',
-        'www.skedoc.com', 'www.eka.care', 'www.whatclinic.com'
-      ) THEN 3
-      -- Tier 4: General directories / aggregators
-      WHEN domain IN (
-        'www.justdial.com', 'www.indiamart.com', 'dir.indiamart.com', 'www.sulekha.com',
-        'www.grotal.com', 'www.mappls.com', 'mapcarta.com', 'www.latlong.net',
-        'www.zoominfo.com', 'www.zaubacorp.com', 'www.joonsquare.com', 'bdir.in',
-        'www.diagnosticcentres.in', 'www.cardiologistindia.com', 'www.healthinsuranceindia.org',
-        'www.policybazaar.com', 'www.policyx.com', 'www.insurancedekho.com',
-        'www.iffcotokio.co.in', 'www.newindia.co.in', 'www.cashlesshospitalindia.com',
-        'chotu.com', 'watchdoq.com', 'kivihealth.com', 'www.scribd.com'
-      ) THEN 2
-      -- Tier 5: Social media
-      WHEN domain IN ('www.facebook.com', 'www.instagram.com') THEN 1
-      -- Tier 6: Unknown / irrelevant
-      ELSE 0
-    END AS tier_weight
-  FROM domains
-),
-
--- Best score: take the single highest tier weight across all URLs for this facility
-scored AS (
-  SELECT
-    unique_id,
-    name,
-    MAX(tier_weight)                     AS domain_authority_score,
-    COUNT(*)                             AS url_count,
-    MAX(CASE WHEN tier_weight = 5 THEN domain END) AS best_tier1_domain,
-    MAX(CASE WHEN tier_weight = 4 THEN domain END) AS best_tier2_domain,
-    MAX(CASE WHEN tier_weight = 3 THEN domain END) AS best_tier3_domain
-  FROM tiered
-  GROUP BY unique_id, name
 )
 
-SELECT * FROM scored ORDER BY domain_authority_score DESC
+SELECT
+  unique_id,
+  name,
+  officialWebsite,
+  domain,
+  url,
+  COUNT(*) OVER (PARTITION BY unique_id) AS url_count
+FROM domains
+ORDER BY unique_id, domain
 ```
+
+> The agent receives this result set, classifies each domain into a tier using the criteria and judgment guidelines above, and computes `MAX(tier_weight)` as the final `domain_authority_score`.
 
 ---
 
 ## Score Interpretation
 
-| Score | Label | Meaning |
+Scores are continuous 0–20. The bands below use the tier anchors as boundaries but a facility can score any value within a band.
+
+| Score range | Label | Meaning |
 |---|---|---|
-| 5 | Strong | At least one government, academic, or globally recognised health source |
-| 4 | Good | Best source is the facility's own website or a professional network |
-| 3 | Moderate | Best source is an established healthcare directory |
-| 2 | Weak | Best source is a general business directory or aggregator |
-| 1 | Poor | Only social media presence; no independent verification |
-| 0 | None | All sources are unknown or irrelevant domains |
+| 17–20 | Strong | At least one government, academic, or globally recognised health source |
+| 13–16 | Good | Best source is the facility's own website or a professional network |
+| 9–12 | Moderate | Best source is an established healthcare directory |
+| 5–8 | Weak | Best source is a general business directory, aggregator, or map service |
+| 1–4 | Poor | Only social media presence; no independent verification |
+| 0 | None | All sources are irrelevant or noise domains |
 
 ---
 

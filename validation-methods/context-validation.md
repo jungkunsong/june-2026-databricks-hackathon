@@ -1,5 +1,8 @@
 # Context Validation
 
+> **Agent:** `ContextAgent`
+> **Rubric role:** The SQL below is for data retrieval only. Sub-score thresholds and the final score are determined by the agent after fetching the raw fields. The scoring tables are calibrated defaults — the agent should apply judgment rather than mechanically applying `CASE/ELSE 0` logic. See [Agent Judgment Guidelines](#agent-judgment-guidelines).
+
 Scores each facility's contextual fields across seven signals — `specialties`, `procedure`, `equipment`, `capability`, `description`, `numberDoctors`, and `capacity` — producing a **context score (0–20)** that reflects how well the data can be internally verified, not merely how complete or self-consistent it appears.
 
 A high score means the fields corroborate each other in ways that are hard to fake through incomplete scraping. A low score means the record lacks the cross-field evidence needed to trust its operational profile.
@@ -213,7 +216,9 @@ context_score =
 
 ---
 
-## SQL Implementation
+## SQL — Data Retrieval
+
+The agent uses this query to fetch raw contextual fields. Sub-score computation and the final `context_score` are determined by the agent after retrieval, not inside the SQL. The scoring `CASE` expressions in the full query below are reference scaffolding only — the agent applies the scoring tables from the rubric above with judgment.
 
 ```sql
 WITH parsed AS (
@@ -445,6 +450,18 @@ A facility should be flagged for review if any of the following are true:
 - `classification_score <= 2` — type-aware bounds fail or one/both classification fields are NULL or out-of-vocabulary; record cannot be reliably typed or filtered by facility/operator category
 - `operational_coverage_score = 0` — no operational array fields at all; record has no verifiable clinical profile
 - `context_score <= 2` — fewer than 3 points across all checks; treat as untrustworthy until enriched
+
+---
+
+## Agent Judgment Guidelines
+
+The scoring tables above are calibrated defaults. The agent applies judgment in the following situations:
+
+- **Specialty keyword misses:** The 15-keyword list is not exhaustive. If a facility's `specialties` or `description` contains a clearly valid specialty not in the list (e.g. `"interventional radiology"`, `"neuroimmunology"`), the agent should count it toward the specialty corroboration sub-score rather than ignoring it.
+- **`numberDoctors` / `capacity` stored as `"null"` string:** These are ingestion artifacts. The agent should treat them as missing data (score 0 on those sub-scores) but note them as pipeline issues rather than data quality failures of the facility itself.
+- **Doctor-to-capacity ratio edge cases:** A ratio > 1 may indicate outpatient capacity rather than inpatient beds. The agent should not penalise if the facility type (e.g. polyclinic, day-surgery centre) makes a high ratio plausible.
+- **Boilerplate description detection:** If the `description` is identical or near-identical across multiple facilities in the same chain, the agent should flag it as a potential copy-paste and reduce the description sub-score accordingly, even if the anchor-word check passes.
+- **Controlled vocabulary unlisted values:** New values not in the canonical set (e.g. `"polyclinic"`, `"ngo"`) should be evaluated by the agent on their merits rather than automatically scoring 1. If the value is clearly a valid facility type, award full credit.
 
 ---
 

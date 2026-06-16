@@ -1,6 +1,9 @@
 # Contacts Validation
 
-Validates three contact-quality dimensions for every facility record in `workspace.default.facilities`: **location** (coordinates, postcode, city, state), **phone number**, and **email address**. Each dimension contributes up to 20 points, for a maximum score of **20 points per record**.
+> **Agent:** `ContactsAgent`
+> **Rubric role:** The SQL below is for data retrieval and intermediate computation only. The agent reviews the three sub-scores (location, phone, email) and computes the final `contacts_score` as their average. Rigid `CASE/ELSE 0` logic in SQL is a scaffold — the agent may adjust scores when context warrants (e.g. a phone number that fails the regex but is clearly valid on inspection). See [Agent Judgment Guidelines](#agent-judgment-guidelines).
+
+Validates three contact-quality dimensions for every facility record in `workspace.default.facilities`: **location** (coordinates, postcode, city, state), **phone number**, and **email address**. Each dimension is scored 0–20. The final **contacts score (0–20)** is the average of the three sub-scores.
 
 > **Pre-normalisation assumed**: This query runs against `workspace.default.facilities` (the clean copy produced by `known-data-quality-issues/master.sql`), where colloquial and legacy city/state names have already been standardised to official India Post notation (fixes #7 and #8 in `master.sql`). Running against the raw source table will produce additional false mismatches on the location dimension.
 
@@ -174,7 +177,9 @@ Email addresses are validated in two passes:
 
 ---
 
-## SQL
+## SQL — Data Retrieval
+
+The agent uses these queries to fetch and compute intermediate contact quality data. The `CASE/ELSE 0` expressions are reference scaffolding — the agent applies the scoring rubric with judgment after reviewing the results.
 
 ### Location Score
 
@@ -476,13 +481,12 @@ SELECT
   l.location_score,
   p.phone_score,
   e.email_score,
-  ROUND((l.location_score + p.phone_score + e.email_score) / 3.0, 1) AS contacts_score_avg,
-  l.location_score + p.phone_score + e.email_score                    AS contacts_score_total
+  ROUND((l.location_score + p.phone_score + e.email_score) / 3.0, 1) AS contacts_score
 FROM base b
 JOIN location_scored l USING (unique_id)
 JOIN phone_scored     p USING (unique_id)
 JOIN email_scored     e USING (unique_id)
-ORDER BY contacts_score_total ASC;
+ORDER BY contacts_score ASC;
 ```
 
 ---
@@ -504,6 +508,18 @@ ORDER BY contacts_score_total ASC;
 - Role addresses (`info@`, `admin@`, etc.) are penalised but not disqualified — they are common for NGOs and may be the only contact on record.
 - The TLD recognition list is non-exhaustive; `.ngo.in` and `.org.in` are explicitly included as they are common for Indian non-profits.
 - Duplicate-domain detection (e.g. multiple facilities sharing the same email domain) is not performed here; see `context-validation.md`.
+
+---
+
+## Agent Judgment Guidelines
+
+The scoring tables above are calibrated defaults. The agent applies judgment in the following situations:
+
+- **Phone regex false negatives:** A phone number that fails the regex but is visually recognisable as a valid Indian number (e.g. has a space-separated STD code) should be scored at the next tier down rather than 0.
+- **Email role addresses:** `info@`, `admin@`, `contact@` etc. are penalised by default. For NGOs and small clinics, these are often the only contact on record — the agent may reduce the penalty from the default if the facility type warrants it.
+- **City MISMATCH with coord MATCH:** If coordinates are within 20 km but the city name doesn't match the district, the agent should not double-penalise. The location sub-score already captures coordinate accuracy; the city mismatch may reflect the city/district naming gap documented in Limitations.
+- **NULL phone or email for a large hospital chain:** Large chains (e.g. Apollo, Fortis) often have centralised contact pages rather than facility-specific numbers. A NULL phone is less suspicious for a chain than for an independent clinic — the agent may award partial credit (5 pts) rather than 0.
+- **`contacts_score` as average:** The final score is `ROUND((location_score + phone_score + email_score) / 3.0, 1)`. The agent should report all three sub-scores alongside the final average so the supervisory agent can inspect which dimension is weak.
 
 ---
 

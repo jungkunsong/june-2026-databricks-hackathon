@@ -1,5 +1,8 @@
 # Social Media Validation
 
+> **Agent:** `SocialAgent`
+> **Rubric role:** The SQL and Python code below are for data retrieval only. Sub-score thresholds and the final score are determined by the agent after fetching the raw fields. The scoring tables are calibrated defaults — the agent should apply judgment rather than mechanically applying `CASE/ELSE 0` logic. See [Agent Judgment Guidelines](#agent-judgment-guidelines).
+
 Scores each facility's social media footprint across two components — a **social presence score (0–16)** across six signals and a **Facebook page validation score (0–4)** — producing a combined **social score (0–20)** that reflects how active, credible, and correctly linked the facility's online presence is.
 
 A facility with no social media data at all scores **0**. A facility with a wide multi-platform presence, recent posts, strong engagement, and a verified Facebook link scores up to **20**.
@@ -124,7 +127,9 @@ social_presence_score =
 
 ---
 
-### SQL Implementation
+### SQL — Data Retrieval
+
+The agent uses this query to fetch raw social media fields. Sub-score computation and the final `social_presence_score` are determined by the agent after retrieval. The `CASE` expressions in the query are reference scaffolding only.
 
 ```sql
 WITH scored AS (
@@ -410,6 +415,18 @@ with sync_playwright() as p:
 - **Loose name matching**: Word-overlap matching can produce false positives for facilities that share common words (e.g. "Hospital", "Medical", "Centre"). Consider tuning the minimum word length threshold or using fuzzy matching.
 - **Page reassignment**: A Facebook page ID may have been reassigned or renamed since the DB record was created — a name mismatch doesn't always mean the link is wrong, but it warrants manual review.
 - **Rate limiting**: Running this at scale (full facilities table) may trigger Facebook's bot detection. Add delays between requests and consider rotating user agents.
+
+---
+
+## Agent Judgment Guidelines
+
+The scoring tables above are calibrated defaults. The agent applies judgment in the following situations:
+
+- **NULL on engagement metrics:** A NULL `engagement_metrics_n_followers` or `engagement_metrics_n_likes` is treated as 0 by default. If the facility is a small rural clinic, a NULL may simply mean the platform doesn't expose these metrics — the agent should not penalise beyond the default 0.
+- **Post recency NULLs (50.7%):** Over half of records have no `post_metrics_most_recent_social_media_post_date`. Score 0 by default, but note that many facilities may be active on social media without this field being scraped.
+- **Facebook name mismatch:** A partial name match (e.g. "Apollo Hospitals" vs "Apollo Hospitals Navi Mumbai") should score 2 rather than 0. Only a completely unrelated name warrants 0.
+- **`distinct_social_media_presence_count` = 1:** A single platform is the minimum threshold for presence. The agent should not treat a single-platform facility as having no social presence — award the base presence points.
+- **Engagement outliers:** Facilities with very high follower counts (e.g. national chains) may skew percentile thresholds. The agent should use the distribution percentiles as a guide, not a hard cutoff, and consider the facility type when scoring engagement.
 
 ---
 
