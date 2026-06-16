@@ -17,7 +17,6 @@ import {
   BookOpen,
   Star,
   Copy,
-  GitMerge,
   Brain,
 } from 'lucide-react';
 
@@ -393,37 +392,8 @@ export function DashboardPage() {
       {/* Two-column lower section */}
       <div className="grid grid-cols-1 gap-6 sm:grid-cols-2">
 
-        {/* How it works */}
-        <div className="rounded-xl border border-border bg-white px-6 py-5 shadow-sm space-y-4">
-          <h2 className="text-sm font-semibold text-[#0B2026]">How it works</h2>
-          <ol className="space-y-3">
-            {[
-              { icon: Layers,      color: 'text-amber-600 bg-amber-50',   step: '1', title: 'Pick one or more facilities', body: 'Open a group of duplicate or conflicting facility records from the queue.' },
-              { icon: Sparkles,    color: 'text-blue-600 bg-blue-50',     step: '2', title: 'AI runs validation', body: '7 sub-agents verify website, contacts, location, social, context, source authority, and duplicates in parallel.' },
-              { icon: GitMerge,    color: 'text-purple-600 bg-purple-50', step: '3', title: 'Review the proposal', body: 'See per-agent scores and a confidence rating. Edit fields or add notes.' },
-              { icon: ShieldCheck, color: 'text-green-600 bg-green-50',   step: '4', title: 'Approve or defer', body: 'Promote a clean record to the resolved dataset, or defer for manual review.' },
-            ].map(({ color, step, title, body }) => (
-              <li key={step} className="flex gap-3">
-                <div className={`mt-0.5 flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-full text-xs font-bold ${color}`}>
-                  {step}
-                </div>
-                <div>
-                  <p className="text-xs font-semibold text-[#0B2026]">{title}</p>
-                  <p className="text-xs text-muted-foreground leading-relaxed">{body}</p>
-                </div>
-              </li>
-            ))}
-          </ol>
-          <button
-            onClick={() => navigate('/queue')}
-            className="mt-2 w-full flex items-center justify-center gap-2 rounded-lg border border-[#FF3621] px-4 py-2 text-xs font-semibold text-[#FF3621] hover:bg-[#FF3621]/5 transition-colors"
-          >
-            Open resolution queue <ArrowRight className="h-3.5 w-3.5" />
-          </button>
-        </div>
-
         {/* Recent decisions */}
-        <div className="rounded-xl border border-border bg-white px-6 py-5 shadow-sm space-y-4">
+        <div className="rounded-xl border border-border bg-white px-6 py-5 shadow-sm space-y-4 sm:col-span-2">
           <div className="flex items-center justify-between">
             <h2 className="text-sm font-semibold text-[#0B2026]">Recent decisions</h2>
             {decisions.length > 0 && (
