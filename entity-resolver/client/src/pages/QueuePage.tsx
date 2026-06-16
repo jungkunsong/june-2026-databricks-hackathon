@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useNavigate, useLocation } from 'react-router';
-import { Search, MapPin, Building2, Layers, ArrowRight, Loader2, RefreshCw, CheckSquare, Square, Zap } from 'lucide-react';
+import { Search, MapPin, Building2, Layers, ArrowRight, RefreshCw, CheckSquare, Square, Zap } from 'lucide-react';
 import { clustersApi, type ClusterSummary } from '../lib/api';
 
 export function QueuePage() {

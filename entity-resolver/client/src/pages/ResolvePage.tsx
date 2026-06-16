@@ -23,8 +23,7 @@ import { AgentChat } from './agents/AgentChat';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
-interface FieldProposal {
-  field: string;
+export interface FieldProposal {
   label: string;
   value: string | number | null;
   old_value?: string | null;
@@ -33,13 +32,13 @@ interface FieldProposal {
   note: string;
 }
 
-interface AgentScore {
+export interface AgentScore {
   agent: string;
   score: number;
   rationale: string;
 }
 
-interface PromotionProposal {
+export interface PromotionProposal {
   outcome: 'verified' | 'corrected' | 'partial' | 'deferred' | 'merged';
   confidence: number;
   reasoning: string;
@@ -51,7 +50,7 @@ interface PromotionProposal {
 }
 
 // Per-field reviewer decision: 'accept' keeps the proposed value, 'edit' uses overrideValue
-interface FieldDecision {
+export interface FieldDecision {
   action: 'accept' | 'edit';
   overrideValue: string;
 }
@@ -59,7 +58,7 @@ interface FieldDecision {
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 /** Parse the last PROMOTION_PROPOSAL: JSON block from the supervisor's message stream. */
-function parseProposal(messages: { role: string; content: string }[]): PromotionProposal | null {
+export function parseProposal(messages: { role: string; content: string }[]): PromotionProposal | null {
   // Walk messages in reverse to find the last assistant message containing the marker
   for (let i = messages.length - 1; i >= 0; i--) {
     const m = messages[i];
@@ -183,7 +182,7 @@ function Section({ title, icon, children, defaultOpen = true }: {
   );
 }
 
-function buildInitialMessage(_clusterId: string, records: FacilityRecord[]): string {
+export function buildInitialMessage(_clusterId: string, records: FacilityRecord[]): string {
   const primary = records[0];
   const rowId = primary?.row_id;
   const names = [...new Set(records.map((r) => r.name).filter(Boolean))].join(', ');
@@ -207,7 +206,7 @@ const STATUS_ICON: Record<string, React.ReactNode> = {
   unverifiable:<Clock className="h-3 w-3" />,
 };
 
-function FieldApprovalTable({
+export function FieldApprovalTable({
   proposal,
   decisions,
   onDecisionChange,
