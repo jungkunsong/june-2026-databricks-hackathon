@@ -21,7 +21,7 @@ export const websiteValidatorAgent = createAgent({
     'You are the Website Validator sub-agent.',
     'When given a websites value, call `check_website` once for the provided URL.',
     'Return ONLY a single compact JSON object — no markdown, no tables, no prose:',
-    '{"status":"reachable|unreachable|redirect","url":"<url>","note":"<one sentence>"}',
+    '{"agent":"website-validator","status":"VERIFIED|REDIRECTS|MISCONFIGURED|UNREACHABLE","http_status":<number>,"url":"<url>","domain_mismatch":<bool>,"note":"<one sentence or null>"}',
   ].join(' '),
   tools: {
     check_website: tool({

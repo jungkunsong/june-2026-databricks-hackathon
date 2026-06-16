@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { useParams, useNavigate, Link, useLocation } from 'react-router';
 import {
   ArrowLeft,
@@ -317,6 +317,83 @@ function FieldApprovalTable({
   );
 }
 
+// ── Collapsible panes ─────────────────────────────────────────────────────────
+
+/** Wraps the agent chat with a collapsible header bar. */
+function ChatPane({
+  collapsed,
+  onToggle,
+  showToggle,
+  streaming,
+  children,
+}: {
+  collapsed: boolean;
+  onToggle: () => void;
+  showToggle: boolean;
+  streaming: boolean;
+  children: React.ReactNode;
+}) {
+  return (
+    <div className={`flex flex-col min-h-0 border-b border-border transition-all ${collapsed ? 'flex-[0_0_auto]' : 'flex-1'}`}>
+      {/* Header — always visible, clickable when toggle is available */}
+      <button
+        onClick={showToggle ? onToggle : undefined}
+        className={`flex w-full items-center justify-between px-3 py-1.5 bg-[#F4F2EE] border-b border-border/60 flex-shrink-0 ${showToggle ? 'cursor-pointer hover:bg-[#EEEDE9]' : 'cursor-default'} transition-colors`}
+      >
+        <span className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+          {streaming && <Loader2 className="h-3 w-3 animate-spin text-blue-500" />}
+          Supervisor chat
+        </span>
+        {showToggle && (
+          collapsed
+            ? <ChevronDown className="h-3.5 w-3.5 text-muted-foreground" />
+            : <ChevronUp   className="h-3.5 w-3.5 text-muted-foreground" />
+        )}
+      </button>
+      {!collapsed && (
+        <div className="flex-1 min-h-0 overflow-hidden">
+          {children}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** Wraps the proposal/approval panel with a collapsible header bar. */
+function ProposalPane({
+  collapsed,
+  onToggle,
+  children,
+}: {
+  collapsed: boolean;
+  onToggle: () => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <div className={`flex flex-col min-h-0 bg-[#FAFAF9] transition-all ${collapsed ? 'flex-[0_0_auto]' : 'flex-1 overflow-y-auto'}`}>
+      {/* Header */}
+      <button
+        onClick={onToggle}
+        className="flex w-full items-center justify-between px-3 py-1.5 bg-[#F4F2EE] border-b border-border/60 flex-shrink-0 cursor-pointer hover:bg-[#EEEDE9] transition-colors"
+      >
+        <span className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+          <CheckCircle2 className="h-3 w-3 text-green-600" />
+          Review &amp; approve
+        </span>
+        {collapsed
+          ? <ChevronDown className="h-3.5 w-3.5 text-muted-foreground" />
+          : <ChevronUp   className="h-3.5 w-3.5 text-muted-foreground" />
+        }
+      </button>
+      {!collapsed && (
+        <div className="px-4 pt-3 pb-3 space-y-3">
+          {children}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ── Main component ────────────────────────────────────────────────────────────
 
 export function ResolvePage() {
@@ -352,6 +429,20 @@ export function ResolvePage() {
   const [promoteError, setPromoteError] = useState<string | null>(null);
 
   const [initialMessage, setInitialMessage] = useState('');
+
+  // Pane collapse state — chat collapses automatically when proposal arrives
+  const [chatCollapsed, setChatCollapsed] = useState(false);
+  const [proposalCollapsed, setProposalCollapsed] = useState(false);
+
+  // Auto-collapse chat and expand proposal the first time a proposal lands
+  const proposalSeenRef = React.useRef(false);
+  useEffect(() => {
+    if (proposal && !proposalSeenRef.current) {
+      proposalSeenRef.current = true;
+      setChatCollapsed(true);
+      setProposalCollapsed(false);
+    }
+  }, [proposal]);
 
   // Re-parse proposal whenever messages update
   useEffect(() => {
@@ -713,9 +804,14 @@ export function ResolvePage() {
           ) : (
             <div className="flex flex-col flex-1 min-h-0">
 
-              {/* Chat — shrinks to make room for the approval panel; hidden in refine mode */}
+              {/* ── Chat pane — collapsible once proposal arrives ── */}
               {!refineEntry && (
-                <div className={`min-h-0 overflow-hidden transition-all ${proposal && !promoted ? 'flex-[0_0_40%]' : 'flex-1'}`}>
+                <ChatPane
+                  collapsed={chatCollapsed}
+                  onToggle={() => setChatCollapsed((v) => !v)}
+                  showToggle={!!proposal && !promoted}
+                  streaming={agentStreaming}
+                >
                   <AgentChat
                     initialMessage={initialMessage}
                     started={agentStarted}
@@ -723,52 +819,50 @@ export function ResolvePage() {
                     onStreamingChange={setAgentStreaming}
                     onMessagesChange={setAgentMessages}
                   />
-                </div>
+                </ChatPane>
               )}
 
-              {/* ── Approval panel — appears once proposal is parsed ── */}
+              {/* ── Proposal pane — collapsible, auto-expands when proposal arrives ── */}
               {!promoted && proposal && (
-                <div className="flex-shrink-0 border-t border-border bg-[#FAFAF9] overflow-y-auto max-h-[60%]">
-                  <div className="px-4 pt-3 pb-2 space-y-3">
-                    <p className="text-xs font-semibold text-[#0B2026]">Review & Approve Fields</p>
-                    <FieldApprovalTable
-                      proposal={proposal}
-                      decisions={decisions}
-                      onDecisionChange={handleDecisionChange}
-                      disabled={promoting}
-                    />
-
-                    {/* Notes + action buttons */}
-                    <textarea
-                      value={humanNotes}
-                      onChange={(e) => setHumanNotes(e.target.value)}
-                      placeholder="Optional reviewer notes…"
-                      rows={2}
-                      className="w-full rounded-md border border-border bg-white px-3 py-2 text-xs text-[#0B2026] placeholder:text-muted-foreground/60 resize-none focus:outline-none focus:ring-1 focus:ring-[#FF3621]/40"
-                    />
-                    {promoteError && (
-                      <p className="text-xs text-red-600">{promoteError}</p>
-                    )}
-                    <div className="flex gap-2 pb-1">
-                      <button
-                        onClick={() => void handleApprove()}
-                        disabled={promoting || agentStreaming}
-                        className="flex flex-1 items-center justify-center gap-1.5 rounded-md bg-[#FF3621] px-4 py-2 text-xs font-semibold text-white hover:bg-[#e02e1a] disabled:opacity-50 transition-colors"
-                      >
-                        {promoting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <CheckCircle2 className="h-3.5 w-3.5" />}
-                        Approve &amp; Promote
-                      </button>
-                      <button
-                        onClick={() => void handleDefer()}
-                        disabled={promoting || agentStreaming}
-                        className="flex flex-1 items-center justify-center gap-1.5 rounded-md border border-border bg-white px-4 py-2 text-xs font-semibold text-[#0B2026] hover:bg-muted/40 disabled:opacity-50 transition-colors"
-                      >
-                        {promoting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Clock className="h-3.5 w-3.5" />}
-                        Defer
-                      </button>
-                    </div>
+                <ProposalPane
+                  collapsed={proposalCollapsed}
+                  onToggle={() => setProposalCollapsed((v) => !v)}
+                >
+                  <FieldApprovalTable
+                    proposal={proposal}
+                    decisions={decisions}
+                    onDecisionChange={handleDecisionChange}
+                    disabled={promoting}
+                  />
+                  <textarea
+                    value={humanNotes}
+                    onChange={(e) => setHumanNotes(e.target.value)}
+                    placeholder="Optional reviewer notes…"
+                    rows={2}
+                    className="w-full rounded-md border border-border bg-white px-3 py-2 text-xs text-[#0B2026] placeholder:text-muted-foreground/60 resize-none focus:outline-none focus:ring-1 focus:ring-[#FF3621]/40"
+                  />
+                  {promoteError && (
+                    <p className="text-xs text-red-600">{promoteError}</p>
+                  )}
+                  <div className="flex gap-2 pb-1">
+                    <button
+                      onClick={() => void handleApprove()}
+                      disabled={promoting || agentStreaming}
+                      className="flex flex-1 items-center justify-center gap-1.5 rounded-md bg-[#FF3621] px-4 py-2 text-xs font-semibold text-white hover:bg-[#e02e1a] disabled:opacity-50 transition-colors"
+                    >
+                      {promoting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <CheckCircle2 className="h-3.5 w-3.5" />}
+                      Approve &amp; Promote
+                    </button>
+                    <button
+                      onClick={() => void handleDefer()}
+                      disabled={promoting || agentStreaming}
+                      className="flex flex-1 items-center justify-center gap-1.5 rounded-md border border-border bg-white px-4 py-2 text-xs font-semibold text-[#0B2026] hover:bg-muted/40 disabled:opacity-50 transition-colors"
+                    >
+                      {promoting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Clock className="h-3.5 w-3.5" />}
+                      Defer
+                    </button>
                   </div>
-                </div>
+                </ProposalPane>
               )}
 
               {/* ── Fallback decision panel — before proposal arrives ── */}

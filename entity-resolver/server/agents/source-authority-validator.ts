@@ -92,6 +92,10 @@ export const sourceAuthorityValidatorAgent = createAgent({
           'www.iffcotokio.co.in',
           'www.newindia.co.in',
           'www.cashlesshospitalindia.com',
+          'chotu.com',
+          'watchdoq.com',
+          'kivihealth.com',
+          'www.scribd.com',
           'www.proptiger.com', // systematic pipeline issue — also flagged separately
         ]);
 
@@ -105,7 +109,6 @@ export const sourceAuthorityValidatorAgent = createAgent({
           'instagram.com',
           'www.youtube.com',
           'youtube.com',
-          'www.linkedin.com', // LinkedIn is Tier 2 when it's the facility's own page
         ]);
 
         // Normalise the official website domain for Tier 2 matching
@@ -162,6 +165,7 @@ export const sourceAuthorityValidatorAgent = createAgent({
           }
           // Tier 2 — Professional / Official
           else if (
+            domain === 'in.linkedin.com' ||
             domain === 'www.linkedin.com' ||
             domain === 'linkedin.com' ||
             (officialDomain && domain.endsWith(officialDomain))

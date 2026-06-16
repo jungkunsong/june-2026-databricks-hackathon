@@ -23,7 +23,8 @@ export const facebookValidatorAgent = createAgent({
     'You are the Facebook Page Validator sub-agent.',
     'When given a facebookLink URL, call `check_facebook_page` once.',
     'Return ONLY a single compact JSON object — no markdown, no tables, no prose:',
-    '{"status":"verified|mismatch|blocked|error","title":"<og:title or null>","note":"<one sentence>"}',
+    '{"agent":"facebook-validator","status":"MATCH|PARTIAL|MISMATCH|NOT_FOUND|UNREACHABLE","title":"<og:title or null>","score":<0|2|4>,"note":"<one sentence or null>"}',
+    'Score mapping: MATCH=4, PARTIAL=2, MISMATCH=0, NOT_FOUND=0, UNREACHABLE=1 (login wall — inconclusive).',
   ].join(' '),
   tools: {
     check_facebook_page: tool({

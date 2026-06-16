@@ -16,7 +16,7 @@ export const phoneValidatorAgent = createAgent({
     'You are the Phone Number Validator sub-agent.',
     'When given a phone_numbers value, call `validate_phone_number` once for the primary number.',
     'Return ONLY a single compact JSON object — no markdown, no tables, no prose:',
-    '{"status":"valid|invalid|suspicious","number":"<normalised>","note":"<one sentence>"}',
+    '{"agent":"phone-validator","status":"VALID|INVALID|LANDLINE_WARNING|NULL_STRING","number":"<normalised or null>","note":"<one sentence or null>"}',
   ].join(' '),
   tools: {
     validate_phone_number: tool({

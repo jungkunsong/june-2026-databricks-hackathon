@@ -27,7 +27,7 @@ export const locationValidatorAgent = createAgent({
     'You are the Location Validator sub-agent.',
     'When given a location, call `validate_location` once.',
     'Return ONLY a single compact JSON object — no markdown, no tables, no prose:',
-    '{"status":"match|close|mismatch|not_found","distance_km":<number or null>,"note":"<one sentence>"}',
+    '{"agent":"location-validator","status":"MATCH|CLOSE|MISMATCH|PINCODE_NOT_FOUND|MISSING_DATA","distance_km":<number or null>,"note":"<one sentence or null>"}',
   ].join(' '),
   tools: {
     validate_location: tool({
