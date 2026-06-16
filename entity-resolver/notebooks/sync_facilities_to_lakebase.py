@@ -1,12 +1,13 @@
 # Databricks notebook source
 
 # MAGIC %md
-# MAGIC # Copy Facilities → Lakebase (one-time)
+# MAGIC # Copy Facilities + India Post Pincode Directory → Lakebase (one-time)
 # MAGIC
-# MAGIC Reads the read-only Delta Share `facilities` table and bulk-loads it
-# MAGIC into Lakebase Postgres as-is — no dedup, no transformation.
+# MAGIC Syncs two tables into Lakebase Postgres:
+# MAGIC   1. `workspace.default.facilities` (cleaned by master.sql) → `virtue_foundation_dataset.facilities`
+# MAGIC   2. `databricks_virtue_foundation_dataset_dais_2026.virtue_foundation_dataset.india_post_pincode_directory` → `virtue_foundation_dataset.india_post_pincode_directory`
 # MAGIC
-# MAGIC Idempotent: drops and recreates the target table on each run.
+# MAGIC Idempotent: drops and recreates each target table on each run.
 # MAGIC
 # MAGIC Uses the native `postgresql` datasource (supported on serverless compute)
 # MAGIC rather than the generic JDBC driver.
@@ -21,10 +22,9 @@ LAKEBASE_DB       = "databricks_postgres"
 LAKEBASE_USER     = "sawyer@enrollhere.com"
 LAKEBASE_ENDPOINT = "projects/entity-resolution/branches/production/endpoints/primary"
 DATABRICKS_HOST   = "https://dbc-6806e9e0-845a.cloud.databricks.com"
+SP_APP_ID         = "4b31d812-e085-4472-9efa-c5b6ffef764d"
 
-SOURCE_TABLE  = "databricks_virtue_foundation_dataset_dais_2026.virtue_foundation_dataset.facilities"
 TARGET_SCHEMA = "virtue_foundation_dataset"
-TARGET_TABLE  = "facilities_raw"
 
 # ── Obtain a Lakebase-scoped JWT ─────────────────────────────────────────────
 PAT = dbutils.notebook.entry_point.getDbutils().notebook().getContext().apiToken().get()
@@ -40,26 +40,20 @@ print("Lakebase JWT obtained.")
 
 # COMMAND ----------
 
-# MAGIC %md ## Step 1 — Read source (raw, no changes)
+# MAGIC %md ## Table 1: facilities
 
 # COMMAND ----------
 
-df = spark.table(SOURCE_TABLE)
-print(f"Source rows: {df.count()}")
-
-# Strip null bytes (\x00) from all string columns — Postgres rejects them
-from pyspark.sql import functions as F
-from pyspark.sql.types import StringType
-
-string_cols = [f.name for f in df.schema.fields if isinstance(f.dataType, StringType)]
-for col in string_cols:
-    df = df.withColumn(col, F.regexp_replace(F.col(col), "\x00", ""))
-
-print(f"Null bytes stripped from {len(string_cols)} string columns.")
+# MAGIC %md ### Step 1 — Read source (pre-cleaned by master.sql)
 
 # COMMAND ----------
 
-# MAGIC %md ## Step 2 — Create target schema and table via psycopg2
+facilities_df = spark.table("workspace.default.facilities")
+print(f"facilities source rows: {facilities_df.count()}")
+
+# COMMAND ----------
+
+# MAGIC %md ### Step 2 — Create target schema and table via psycopg2
 
 # COMMAND ----------
 
@@ -74,9 +68,10 @@ conn.autocommit = True
 cur = conn.cursor()
 
 cur.execute(f"CREATE SCHEMA IF NOT EXISTS {TARGET_SCHEMA}")
-cur.execute(f"DROP TABLE IF EXISTS {TARGET_SCHEMA}.{TARGET_TABLE}")
+cur.execute(f"DROP TABLE IF EXISTS {TARGET_SCHEMA}.facilities")      # idempotent: drop old facilities if exists
+cur.execute(f"DROP TABLE IF EXISTS {TARGET_SCHEMA}.facilities_raw")  # idempotent: drop old facilities_raw if exists
 cur.execute(f"""
-CREATE TABLE {TARGET_SCHEMA}.{TARGET_TABLE} (
+CREATE TABLE {TARGET_SCHEMA}.facilities (
     row_id                                          SERIAL PRIMARY KEY,
     unique_id                                       TEXT,
     source_types                                    TEXT,
@@ -124,7 +119,7 @@ CREATE TABLE {TARGET_SCHEMA}.{TARGET_TABLE} (
     engagement_metrics_n_likes                      TEXT,
     engagement_metrics_n_engagements                TEXT,
     source                                          TEXT,
-    coordinates                                     TEXT,
+    -- coordinates column removed (redundant with latitude/longitude per Fix #6 in master.sql)
     latitude                                        DOUBLE PRECISION,
     longitude                                       DOUBLE PRECISION,
     cluster_id                                      TEXT,
@@ -132,40 +127,36 @@ CREATE TABLE {TARGET_SCHEMA}.{TARGET_TABLE} (
 )
 """)
 
-SP_APP_ID = "4b31d812-e085-4472-9efa-c5b6ffef764d"
 cur.execute(f'GRANT USAGE ON SCHEMA {TARGET_SCHEMA} TO "{SP_APP_ID}"')
-cur.execute(f'GRANT SELECT ON {TARGET_SCHEMA}.{TARGET_TABLE} TO "{SP_APP_ID}"')
+cur.execute(f'GRANT SELECT ON {TARGET_SCHEMA}.facilities TO "{SP_APP_ID}"')
 
 cur.close()
 conn.close()
-print("Table created, grants applied.")
+print("facilities table created, grants applied.")
 
 # COMMAND ----------
 
-# MAGIC %md ## Step 3 — Bulk load via native postgresql datasource
+# MAGIC %md ### Step 3 — Bulk load via native postgresql datasource
 
 # COMMAND ----------
-
-# The native `postgresql` format is supported on serverless compute.
-# We write to the table WITHOUT the row_id column — Postgres fills it via SERIAL.
 
 (
-    df.write
+    facilities_df.write
     .format("postgresql")
     .option("host", LAKEBASE_HOST)
     .option("port", str(LAKEBASE_PORT))
     .option("database", LAKEBASE_DB)
-    .option("dbtable", f"{TARGET_SCHEMA}.{TARGET_TABLE}")
+    .option("dbtable", f"{TARGET_SCHEMA}.facilities")
     .option("user", LAKEBASE_USER)
     .option("password", LAKEBASE_TOKEN)
     .mode("append")
     .save()
 )
-print("Load complete.")
+print("facilities load complete.")
 
 # COMMAND ----------
 
-# MAGIC %md ## Step 4 — Verify
+# MAGIC %md ### Step 4 — Verify
 
 # COMMAND ----------
 
@@ -175,12 +166,104 @@ conn2 = psycopg2.connect(
     password=LAKEBASE_TOKEN, sslmode="require",
 )
 cur2 = conn2.cursor()
-cur2.execute(f"SELECT COUNT(*) FROM {TARGET_SCHEMA}.{TARGET_TABLE}")
+cur2.execute(f"SELECT COUNT(*) FROM {TARGET_SCHEMA}.facilities")
 pg_count = cur2.fetchone()[0]
 cur2.close()
 conn2.close()
 
-source_count = df.count()
-print(f"Source: {source_count}  |  Postgres: {pg_count}")
+source_count = facilities_df.count()
+print(f"facilities — Source: {source_count}  |  Postgres: {pg_count}")
 assert pg_count == source_count, f"Mismatch! source={source_count} pg={pg_count}"
-print("Verified OK.")
+print("facilities verified OK.")
+
+# COMMAND ----------
+
+# MAGIC %md ## Table 2: india_post_pincode_directory
+
+# COMMAND ----------
+
+# MAGIC %md ### Step 1 — Read source
+
+# COMMAND ----------
+
+pincode_df = spark.table("databricks_virtue_foundation_dataset_dais_2026.virtue_foundation_dataset.india_post_pincode_directory")
+print(f"india_post_pincode_directory source rows: {pincode_df.count()}")
+
+# COMMAND ----------
+
+# MAGIC %md ### Step 2 — Create target table via psycopg2
+
+# COMMAND ----------
+
+conn3 = psycopg2.connect(
+    host=LAKEBASE_HOST, port=LAKEBASE_PORT,
+    dbname=LAKEBASE_DB, user=LAKEBASE_USER,
+    password=LAKEBASE_TOKEN, sslmode="require",
+)
+conn3.autocommit = True
+cur3 = conn3.cursor()
+
+cur3.execute(f"DROP TABLE IF EXISTS {TARGET_SCHEMA}.india_post_pincode_directory")
+cur3.execute(f"""
+CREATE TABLE {TARGET_SCHEMA}.india_post_pincode_directory (
+    circlename   TEXT,
+    regionname   TEXT,
+    divisionname TEXT,
+    officename   TEXT,
+    pincode      BIGINT,
+    officetype   TEXT,
+    delivery     TEXT,
+    district     TEXT,
+    statename    TEXT,
+    latitude     TEXT,
+    longitude    TEXT
+)
+""")
+
+cur3.execute(f'GRANT SELECT ON {TARGET_SCHEMA}.india_post_pincode_directory TO "{SP_APP_ID}"')
+
+cur3.close()
+conn3.close()
+print("india_post_pincode_directory table created, grants applied.")
+
+# COMMAND ----------
+
+# MAGIC %md ### Step 3 — Bulk load via native postgresql datasource
+
+# COMMAND ----------
+
+(
+    pincode_df.write
+    .format("postgresql")
+    .option("host", LAKEBASE_HOST)
+    .option("port", str(LAKEBASE_PORT))
+    .option("database", LAKEBASE_DB)
+    .option("dbtable", f"{TARGET_SCHEMA}.india_post_pincode_directory")
+    .option("user", LAKEBASE_USER)
+    .option("password", LAKEBASE_TOKEN)
+    .mode("append")
+    .save()
+)
+print("india_post_pincode_directory load complete.")
+
+# COMMAND ----------
+
+# MAGIC %md ### Step 4 — Verify
+
+# COMMAND ----------
+
+conn4 = psycopg2.connect(
+    host=LAKEBASE_HOST, port=LAKEBASE_PORT,
+    dbname=LAKEBASE_DB, user=LAKEBASE_USER,
+    password=LAKEBASE_TOKEN, sslmode="require",
+)
+cur4 = conn4.cursor()
+cur4.execute(f"SELECT COUNT(*) FROM {TARGET_SCHEMA}.india_post_pincode_directory")
+pg_count2 = cur4.fetchone()[0]
+cur4.close()
+conn4.close()
+
+source_count2 = pincode_df.count()
+print(f"india_post_pincode_directory — Source: {source_count2}  |  Postgres: {pg_count2}")
+assert pg_count2 == source_count2, f"Mismatch! source={source_count2} pg={pg_count2}"
+print("india_post_pincode_directory verified OK.")
