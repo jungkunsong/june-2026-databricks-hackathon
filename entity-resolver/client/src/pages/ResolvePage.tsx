@@ -392,15 +392,21 @@ export function ResolvePage() {
   // Refine mode: seed proposal from the previous decision entry, skip the agent entirely
   useEffect(() => {
     if (!refineEntry || loading) return;
-    const fields: FieldProposal[] = (refineEntry.verifications ?? []).map((v) => ({
-      field: v.field,
-      label: v.field,
-      value: v.new_value ?? v.old_value ?? null,
-      old_value: v.old_value ?? null,
-      status: v.status as FieldProposal['status'],
-      agent: v.agent ?? null,
-      note: v.supervisor_reasoning ?? '',
-    }));
+    const fields: FieldProposal[] = (refineEntry.verifications ?? []).map((v) => {
+      // 'skipped' isn't a valid FieldProposal status — normalise to 'unverifiable'
+      const safeStatus = (['verified', 'corrected', 'unverifiable'] as const).includes(
+        v.status as FieldProposal['status']
+      ) ? (v.status as FieldProposal['status']) : 'unverifiable';
+      return {
+        field: v.field,
+        label: v.field.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase()),
+        value: v.new_value ?? v.old_value ?? null,
+        old_value: v.old_value ?? null,
+        status: safeStatus,
+        agent: v.agent ?? null,
+        note: v.supervisor_reasoning ?? '',
+      };
+    });
     const seeded: PromotionProposal = {
       outcome: refineEntry.outcome,
       confidence: refineEntry.confidence ?? 0,
@@ -445,11 +451,28 @@ export function ResolvePage() {
     setDecisions((prev) => ({ ...prev, [field]: d }));
   }
 
+  /** In refine mode there is no task yet — create one on-demand before promoting. */
+  async function ensureTask(): Promise<ResolutionTask | null> {
+    if (task) return task;
+    if (!clusterId) return null;
+    try {
+      const created = await tasksApi.create(clusterId);
+      setTask(created);
+      return created;
+    } catch (e) {
+      setPromoteError(String(e));
+      return null;
+    }
+  }
+
   async function handleApprove() {
-    if (!task || !proposal) return;
+    if (!proposal) return;
     setPromoting(true);
     setPromoteError(null);
     try {
+      const activeTask = await ensureTask();
+      if (!activeTask) { setPromoting(false); return; }
+
       // Build resolved_fields from reviewer decisions
       const resolved_fields: Record<string, unknown> = {};
       for (const f of proposal.fields) {
@@ -477,9 +500,9 @@ export function ResolvePage() {
         anyHumanEdit && proposal.outcome === 'verified' ? 'corrected' : proposal.outcome;
 
       const result = await promoteApi.promote({
-        task_id: task.id,
-        raw_row_id: task.raw_row_id,
-        facility_name: task.facility_name ?? records[0]?.name ?? null,
+        task_id: activeTask.id,
+        raw_row_id: activeTask.raw_row_id,
+        facility_name: activeTask.facility_name ?? records[0]?.name ?? null,
         outcome: finalOutcome,
         confidence: proposal.confidence,
         reasoning: humanNotes.trim() || proposal.reasoning,
@@ -497,14 +520,16 @@ export function ResolvePage() {
   }
 
   async function handleDefer() {
-    if (!task) return;
     setPromoting(true);
     setPromoteError(null);
     try {
+      const activeTask = await ensureTask();
+      if (!activeTask) { setPromoting(false); return; }
+
       const result = await promoteApi.promote({
-        task_id: task.id,
-        raw_row_id: task.raw_row_id,
-        facility_name: task.facility_name ?? records[0]?.name ?? null,
+        task_id: activeTask.id,
+        raw_row_id: activeTask.raw_row_id,
+        facility_name: activeTask.facility_name ?? records[0]?.name ?? null,
         outcome: 'deferred',
         reasoning: humanNotes.trim() || 'Human reviewer deferred for manual investigation.',
         human_notes: humanNotes.trim() || null,
@@ -635,7 +660,7 @@ export function ResolvePage() {
           {/* Panel header */}
           <div className="flex items-center justify-between border-b border-border px-4 py-2.5 flex-shrink-0">
             <span className="flex items-center gap-2 text-sm font-semibold text-[#0B2026]">
-              <Bot className="h-4 w-4" />
+              {refineEntry ? <Pencil className="h-4 w-4" /> : <Bot className="h-4 w-4" />}
               {refineEntry ? 'Refine Previous Decision' : 'Supervisor Agent'}
             </span>
             {!refineEntry && agentStarted && agentStreaming && (
