@@ -54,7 +54,11 @@ function agentLabel(toolName: string): string {
 // ── Content cleaner ───────────────────────────────────────────────────────────
 
 function cleanContent(raw: string): string {
-  let s = raw.replace(/PROMOTION_PROPOSAL:[\s\S]*$/, '').trimEnd();
+  // Strip the status line emitted to break proxy buffering, and the proposal block
+  let s = raw
+    .replace(/^Verifying record…\s*/i, '')
+    .replace(/PROMOTION_PROPOSAL:[\s\S]*$/, '')
+    .trimEnd();
   let result = '';
   let i = 0;
   while (i < s.length) {
