@@ -33,53 +33,76 @@ interface AgentChatProps {
 // ── Agent activity feed ───────────────────────────────────────────────────────
 
 const AGENT_LABELS: Record<string, string> = {
-  'agent-evidence-fetcher':               'Fetching raw record…',
-  'agent-website-validator':              'Checking website…',
-  'agent-phone-validator':                'Validating phone number…',
-  'agent-location-validator':             'Verifying location & coordinates…',
-  'agent-facebook-validator':             'Checking Facebook page…',
-  'agent-similarity-scorer':              'Scoring name & address similarity…',
-  'agent-duplicate-detector':             'Scanning for duplicate records…',
-  'agent-context-validator':              'Assessing record completeness…',
-  'agent-skill-matcher':                  'Matching specialties to equipment…',
-  'agent-source-authority-validator':     'Checking source authority…',
-  'agent-controlled-vocabulary-validator':'Validating controlled vocabulary…',
+  'agent-evidence-fetcher':                'Fetching raw record…',
+  'agent-website-validator':               'Checking website…',
+  'agent-phone-validator':                 'Validating phone number…',
+  'agent-location-validator':              'Verifying location & coordinates…',
+  'agent-facebook-validator':              'Checking Facebook page…',
+  'agent-similarity-scorer':               'Scoring name & address similarity…',
+  'agent-duplicate-detector':              'Scanning for duplicate records…',
+  'agent-context-validator':               'Assessing record completeness…',
+  'agent-skill-matcher':                   'Matching specialties to equipment…',
+  'agent-source-authority-validator':      'Checking source authority…',
+  'agent-controlled-vocabulary-validator': 'Validating controlled vocabulary…',
 };
+
+// Keys that appear inside sub-agent JSON blobs — used to infer which agent
+// returned a result when we parse the streaming content directly.
+const AGENT_RESULT_KEYS: [string, string][] = [
+  ['"agent":"evidence-fetcher"',               'agent-evidence-fetcher'],
+  ['"agent":"website-validator"',              'agent-website-validator'],
+  ['"agent":"phone-validator"',                'agent-phone-validator'],
+  ['"agent":"location-validator"',             'agent-location-validator'],
+  ['"agent":"facebook-validator"',             'agent-facebook-validator'],
+  ['"agent":"similarity-scorer"',              'agent-similarity-scorer'],
+  ['"agent":"duplicate-detector"',             'agent-duplicate-detector'],
+  ['"agent":"context-validator"',              'agent-context-validator'],
+  ['"agent":"skill-matcher"',                  'agent-skill-matcher'],
+  ['"agent":"source-authority-validator"',     'agent-source-authority-validator'],
+  ['"agent":"controlled-vocabulary-validator"','agent-controlled-vocabulary-validator'],
+  // evidence-fetcher result has no "agent" key — detect by unique field combo
+  ['"latitude"',                               'agent-evidence-fetcher'],
+];
 
 function agentLabel(toolName: string): string {
   return AGENT_LABELS[toolName] ?? `Calling ${toolName.replace(/^agent-/, '').replace(/-/g, ' ')}…`;
 }
 
 /**
+ * Scan the raw streaming content for sub-agent result blobs and return the
+ * ordered list of agent names whose results have appeared so far.
+ * This is the fallback path when onEvent tool_call events don't fire.
+ */
+function parseAgentsFromContent(raw: string): string[] {
+  const seen: string[] = [];
+  const seenSet = new Set<string>();
+  for (const [key, agentName] of AGENT_RESULT_KEYS) {
+    if (raw.includes(key) && !seenSet.has(agentName)) {
+      seen.push(agentName);
+      seenSet.add(agentName);
+    }
+  }
+  return seen;
+}
+
+/**
  * Strip raw sub-agent JSON blobs and the PROMOTION_PROPOSAL block from a
  * supervisor message before displaying it to the user.
- *
- * The supervisor emits tool-result JSON objects concatenated directly before
- * the human-readable prose — sometimes with newlines between them, sometimes
- * without (e.g. `}{` back-to-back as a single streaming string). A line-based
- * approach fails in the no-newline case, so we use a character-level scanner
- * that walks the string, extracts every top-level JSON object, checks whether
- * it looks like a sub-agent result, and removes it.
  */
 function cleanContent(raw: string): string {
   // 1. Remove PROMOTION_PROPOSAL block (everything from the marker to end)
   let s = raw.replace(/PROMOTION_PROPOSAL:[\s\S]*$/, '').trimEnd();
 
-  // 2. Walk the string character-by-character, collecting top-level JSON
-  //    objects. For each one, decide whether to keep or drop it.
+  // 2. Walk the string character-by-character, collecting top-level JSON objects.
   let result = '';
   let i = 0;
   while (i < s.length) {
-    // Skip whitespace between tokens
     if (s[i] === '\n' || s[i] === '\r' || s[i] === ' ' || s[i] === '\t') {
-      // Preserve whitespace that isn't between two JSON blobs
       result += s[i];
       i++;
       continue;
     }
-
     if (s[i] === '{') {
-      // Extract the full balanced JSON object starting at i
       let depth = 0;
       let inString = false;
       let escape = false;
@@ -94,23 +117,18 @@ function cleanContent(raw: string): string {
         else if (ch === '}') { depth--; if (depth === 0) { j++; break; } }
         j++;
       }
-
       const blob = s.slice(i, j);
       let drop = false;
       try {
         const obj = JSON.parse(blob) as Record<string, unknown>;
-        // Drop if it's a sub-agent result or evidence-fetcher output
         if (
-          typeof obj['agent'] === 'string' ||          // all sub-agent results
-          ('name' in obj && 'latitude' in obj) ||       // evidence-fetcher
-          ('row_id' in obj && 'candidates' in obj)      // duplicate-detector alt
+          typeof obj['agent'] === 'string' ||
+          ('name' in obj && 'latitude' in obj) ||
+          ('row_id' in obj && 'candidates' in obj)
         ) {
           drop = true;
         }
-      } catch {
-        // Not valid JSON — keep as-is
-      }
-
+      } catch { /* not valid JSON — keep */ }
       if (!drop) result += blob;
       i = j;
     } else {
@@ -119,7 +137,6 @@ function cleanContent(raw: string): string {
     }
   }
 
-  // 3. Collapse runs of 3+ blank lines and trim
   return result.replace(/\n{3,}/g, '\n\n').trim();
 }
 
@@ -132,7 +149,6 @@ export function AgentChat({ agentName, initialMessage, placeholder, started = fa
   const [input, setInput] = useState('');
   const [pendingAssistantId, setPendingAssistantId] = useState<string | null>(null);
   const scrollRef = useRef<HTMLDivElement | null>(null);
-  // Tracks whether send() has resolved but we're waiting for the final content sync
   const sendDoneRef = useRef(false);
 
   // Notify parent whenever messages change so it can parse proposals
@@ -140,31 +156,30 @@ export function AgentChat({ agentName, initialMessage, placeholder, started = fa
     onMessagesChange?.(messages.map((m) => ({ role: m.role, content: m.content })));
   }, [messages, onMessagesChange]);
 
-  // Use a ref so the seed effect always sees the latest `send` without
-  // needing it in the dependency array (avoids re-triggering on every render).
   const sendRef = useRef<((msg: string) => Promise<void>) | null>(null);
   const resetRef = useRef<(() => void) | null>(null);
-  // Guard: fire the seed message exactly once
   const seededRef = useRef(false);
 
   const handleEvent = (event: AgentChatEvent) => {
-    // Log every event so we can see what the runtime actually sends
-    console.log('[AgentChat event]', event.type, JSON.stringify(event).slice(0, 300));
-
+    // Capture tool_call events from the supervisor's own LLM calls
     if (
       event.type === 'response.output_item.added' &&
       event.item?.type === 'function_call' &&
       event.item.name
     ) {
-      setMessages((prev) => [
-        ...prev,
-        {
-          id: `t-${Date.now()}-${Math.random()}`,
-          role: 'tool',
-          toolName: event.item?.name,
-          content: event.item?.arguments ?? '',
-        },
-      ]);
+      setMessages((prev) => {
+        // Deduplicate: don't add the same agent twice
+        if (prev.some((m) => m.role === 'tool' && m.toolName === event.item?.name)) return prev;
+        return [
+          ...prev,
+          {
+            id: `t-${Date.now()}-${Math.random()}`,
+            role: 'tool',
+            toolName: event.item?.name,
+            content: event.item?.arguments ?? '',
+          },
+        ];
+      });
     }
   };
 
@@ -173,37 +188,59 @@ export function AgentChat({ agentName, initialMessage, placeholder, started = fa
     onEvent: handleEvent,
   });
 
-  // Keep refs in sync with the latest send/reset functions
   sendRef.current = send;
   resetRef.current = reset;
 
-  // Sync streaming state to parent
   useEffect(() => {
     onStreamingChange?.(isStreaming);
   }, [isStreaming, onStreamingChange]);
 
-  // Scroll to bottom on new content
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight });
   }, [messages, content]);
 
-  // Update the in-progress assistant bubble with streamed content
+  // Update the in-progress assistant bubble with streamed content.
+  // Also inject tool messages parsed from the content stream as a fallback
+  // (in case onEvent tool_call events don't fire for sub-agent dispatches).
   useEffect(() => {
     if (!pendingAssistantId) return;
+
+    // Fallback: parse agent names from the raw streaming content
+    if (content) {
+      const agentsInContent = parseAgentsFromContent(content);
+      if (agentsInContent.length > 0) {
+        setMessages((prev) => {
+          const existingToolNames = new Set(prev.filter(m => m.role === 'tool').map(m => m.toolName));
+          const newTools: Message[] = agentsInContent
+            .filter(name => !existingToolNames.has(name))
+            .map(name => ({
+              id: `t-content-${name}`,
+              role: 'tool' as const,
+              toolName: name,
+              content: '',
+            }));
+          if (newTools.length === 0) return prev;
+          // Insert new tool messages just before the pending assistant bubble
+          const assistantIdx = prev.findIndex(m => m.id === pendingAssistantId);
+          if (assistantIdx === -1) return [...prev, ...newTools];
+          return [
+            ...prev.slice(0, assistantIdx),
+            ...newTools,
+            ...prev.slice(assistantIdx),
+          ];
+        });
+      }
+    }
+
     setMessages((prev) =>
-      prev.map((m) =>
-        m.id === pendingAssistantId ? { ...m, content } : m,
-      ),
+      prev.map((m) => m.id === pendingAssistantId ? { ...m, content } : m),
     );
-    // If send() already resolved, clear the pending ID now that content is synced
     if (sendDoneRef.current) {
       sendDoneRef.current = false;
       setPendingAssistantId(null);
     }
   }, [content, pendingAssistantId]);
 
-  // Fire the seed message once — runs when started=true AND activeAgent is known
-  // Uses refs so it doesn't re-fire if send/initialMessage identity changes.
   useEffect(() => {
     if (!started || !activeAgent || seededRef.current) return;
     const msg = initialMessage?.trim();
@@ -212,8 +249,6 @@ export function AgentChat({ agentName, initialMessage, placeholder, started = fa
     seededRef.current = true;
     const assistantId = `a-seed-${Date.now()}`;
 
-    // Reset the thread so every verification starts fresh — prevents the
-    // model from losing track of its tools on a long accumulated thread.
     resetRef.current?.();
 
     setMessages([
@@ -222,7 +257,6 @@ export function AgentChat({ agentName, initialMessage, placeholder, started = fa
     ]);
     setPendingAssistantId(assistantId);
 
-    // Retry with exponential backoff on 429 rate-limit errors (up to 3 attempts)
     const trySend = async (attemptsLeft: number): Promise<void> => {
       try {
         await sendRef.current!(msg);
@@ -233,7 +267,7 @@ export function AgentChat({ agentName, initialMessage, placeholder, started = fa
           String(err).toLowerCase().includes('rate limit') ||
           String(err).toLowerCase().includes('too many requests');
         if (is429 && attemptsLeft > 1) {
-          const delay = (4 - attemptsLeft) * 3000; // 3s, 6s
+          const delay = (4 - attemptsLeft) * 3000;
           await new Promise((r) => setTimeout(r, delay));
           await trySend(attemptsLeft - 1);
         } else {
@@ -242,7 +276,6 @@ export function AgentChat({ agentName, initialMessage, placeholder, started = fa
       }
     };
     void trySend(3);
-  // Only re-evaluate when the things that gate the send change
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [started, activeAgent, initialMessage]);
 
@@ -264,7 +297,6 @@ export function AgentChat({ agentName, initialMessage, placeholder, started = fa
 
   return (
     <div className="flex h-full flex-col">
-      {/* Messages */}
       <div ref={scrollRef} className="flex-1 overflow-y-auto space-y-3 p-4">
         {messages.length === 0 && (
           <div className="flex flex-col items-center justify-center h-full gap-2 text-center">
@@ -277,11 +309,11 @@ export function AgentChat({ agentName, initialMessage, placeholder, started = fa
         {messages.map((m, idx) => {
           // ── Tool call row — live activity feed ──────────────────────────
           if (m.role === 'tool') {
-            // Only show tool messages while streaming (hide once final answer arrives)
+            // Hide tool rows once streaming is done (clean final view)
             if (!isStreaming) return null;
             const label = agentLabel(m.toolName ?? '');
-            // The very last tool message gets a spinner; earlier ones get a check
-            const isLatest = idx === messages.map((x, i) => x.role === 'tool' ? i : -1).filter(i => i >= 0).at(-1);
+            const toolMessages = messages.filter((x) => x.role === 'tool');
+            const isLatest = toolMessages[toolMessages.length - 1]?.id === m.id;
             return (
               <div key={m.id} className="flex items-center gap-2 pl-1">
                 <div className="flex h-5 w-5 flex-shrink-0 items-center justify-center rounded-full bg-[#EEEDE9]">
@@ -298,6 +330,7 @@ export function AgentChat({ agentName, initialMessage, placeholder, started = fa
           }
 
           // ── User / assistant bubble ──────────────────────────────────────
+          void idx; // suppress unused warning
           const isUser = m.role === 'user';
           return (
             <div key={m.id} className={`flex items-start gap-2 ${isUser ? 'flex-row-reverse' : ''}`}>
@@ -310,8 +343,6 @@ export function AgentChat({ agentName, initialMessage, placeholder, started = fa
               <div className={`max-w-[85%] rounded-lg px-3 py-2 text-sm ${isUser ? 'bg-[#FF3621]/10 text-[#0B2026]' : 'bg-[#EEEDE9] text-[#0B2026]'}`}>
                 <div className="whitespace-pre-wrap leading-relaxed">
                   {(m.content ? cleanContent(m.content) : '') || (isStreaming && m.id === pendingAssistantId ? (
-                    // Only show "Preparing summary…" once agents have started firing.
-                    // Before that, the activity feed rows below the bubble handle the loading state.
                     messages.some((x) => x.role === 'tool') ? (
                       <span className="flex items-center gap-1 text-muted-foreground">
                         <Loader2 className="h-3 w-3 animate-spin" /> Preparing summary…
