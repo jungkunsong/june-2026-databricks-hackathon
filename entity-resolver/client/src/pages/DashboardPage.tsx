@@ -3,7 +3,6 @@ import { useNavigate } from 'react-router';
 import {
   ArrowRight,
   CheckCircle2,
-  GitBranch,
   AlertTriangle,
   Clock,
   Loader2,
@@ -11,6 +10,17 @@ import {
   ShieldCheck,
   Sparkles,
   TrendingUp,
+  Globe,
+  Phone,
+  MapPin,
+  Facebook,
+  BookOpen,
+  Star,
+  Copy,
+  Users,
+  Search,
+  GitMerge,
+  Brain,
 } from 'lucide-react';
 import { clustersApi, decisionLogApi, type DecisionLogEntry } from '../lib/api';
 
@@ -115,6 +125,45 @@ function RecentDecisionRow({ entry }: { entry: DecisionLogEntry }) {
   );
 }
 
+// Sub-agent card for the agent showcase section
+function AgentCard({
+  icon: Icon,
+  iconBg,
+  name,
+  score,
+  description,
+  signals,
+}: {
+  icon: typeof Globe;
+  iconBg: string;
+  name: string;
+  score: string;
+  description: string;
+  signals: string[];
+}) {
+  return (
+    <div className="rounded-xl border border-border bg-white px-5 py-4 shadow-sm space-y-3 hover:shadow-md transition-shadow">
+      <div className="flex items-center gap-3">
+        <div className={`flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-lg ${iconBg}`}>
+          <Icon className="h-4 w-4" />
+        </div>
+        <div className="min-w-0">
+          <p className="text-xs font-semibold text-[#0B2026]">{name}</p>
+          <p className="text-[10px] text-muted-foreground font-mono">{score}</p>
+        </div>
+      </div>
+      <p className="text-[11px] text-muted-foreground leading-relaxed">{description}</p>
+      <div className="flex flex-wrap gap-1">
+        {signals.map((s) => (
+          <span key={s} className="rounded-full bg-muted px-2 py-0.5 text-[10px] font-medium text-muted-foreground">
+            {s}
+          </span>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 // ── Main component ────────────────────────────────────────────────────────────
 
 export function DashboardPage() {
@@ -149,32 +198,125 @@ export function DashboardPage() {
 
   const recentDecisions = decisions.slice(0, 5);
 
+  const agents = [
+    {
+      icon: Globe,
+      iconBg: 'bg-blue-50 text-blue-600',
+      name: 'Website Validator',
+      score: 'page_presence_score · 0–20',
+      description: 'Live HTTP check on officialWebsite. Scores domain authority, SSL, content relevance, and page recency.',
+      signals: ['HTTP status', 'SSL cert', 'domain age', 'content match', 'recency'],
+    },
+    {
+      icon: Phone,
+      iconBg: 'bg-green-50 text-green-600',
+      name: 'Phone Validator',
+      score: 'phone_score · 0–20',
+      description: 'Validates Indian phone numbers via libphonenumber — checks format, STD code, and geographic plausibility against the facility\'s pincode.',
+      signals: ['E.164 format', 'STD code', 'pincode match', 'mobile vs. landline'],
+    },
+    {
+      icon: MapPin,
+      iconBg: 'bg-amber-50 text-amber-600',
+      name: 'Location Validator',
+      score: 'location_score · 0–20',
+      description: 'Cross-references lat/lon, pincode, city, and state against a reference directory. Flags coordinate–address mismatches within 20 km.',
+      signals: ['lat/lon', 'pincode', 'city', 'state', 'distance check'],
+    },
+    {
+      icon: Facebook,
+      iconBg: 'bg-indigo-50 text-indigo-600',
+      name: 'Social Validator',
+      score: 'social_score · 0–20',
+      description: 'Scores Facebook page presence (0–16) plus cross-field validation of the social handle against the facility name and address (0–4).',
+      signals: ['page exists', 'follower count', 'activity', 'name match', 'address match'],
+    },
+    {
+      icon: BookOpen,
+      iconBg: 'bg-purple-50 text-purple-600',
+      name: 'Context Validator',
+      score: 'context_score · 0–20',
+      description: 'Evaluates six contextual fields — specialties, procedures, equipment, capabilities, description, and doctor/capacity counts — for internal coherence.',
+      signals: ['specialties', 'procedures', 'equipment', 'capacity', 'description', 'doctor count'],
+    },
+    {
+      icon: Star,
+      iconBg: 'bg-rose-50 text-rose-600',
+      name: 'Source Authority',
+      score: 'source_authority_score · 0–20',
+      description: 'Tiers each URL in source_urls from authoritative (gov, WHO, Wikipedia) down to noise (real-estate portals). Score = MAX tier across all sources.',
+      signals: ['gov/WHO', 'official site', 'Practo', 'JustDial', 'proptiger.com'],
+    },
+    {
+      icon: Copy,
+      iconBg: 'bg-teal-50 text-teal-600',
+      name: 'Duplicate Detector',
+      score: 'duplicate_flag · boolean',
+      description: 'Detects near-duplicate records within a cluster using name fuzzy-match, address overlap, and phone/website fingerprinting.',
+      signals: ['name similarity', 'address overlap', 'phone hash', 'website hash'],
+    },
+    {
+      icon: Users,
+      iconBg: 'bg-orange-50 text-orange-600',
+      name: 'Similarity Scorer',
+      score: 'similarity_score · 0–1',
+      description: 'Computes pairwise similarity across all records in a cluster to surface the best canonical candidate for promotion.',
+      signals: ['name', 'address', 'phone', 'website', 'specialties'],
+    },
+  ];
+
   return (
-    <div className="space-y-8 max-w-4xl mx-auto">
+    <div className="space-y-8 max-w-5xl mx-auto">
 
       {/* Hero */}
-      <div className="rounded-xl border border-border bg-white px-8 py-8 shadow-sm flex flex-col sm:flex-row items-start sm:items-center gap-6">
-        <div className="flex h-14 w-14 flex-shrink-0 items-center justify-center rounded-xl bg-[#0B2026]">
-          <ShieldCheck className="h-7 w-7 text-[#FF3621]" />
+      <div className="rounded-xl border border-border bg-white px-8 py-8 shadow-sm">
+        <div className="flex flex-col sm:flex-row items-start sm:items-center gap-6">
+          <div className="flex h-14 w-14 flex-shrink-0 items-center justify-center rounded-xl bg-[#0B2026]">
+            <ShieldCheck className="h-7 w-7 text-[#FF3621]" />
+          </div>
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center gap-2 flex-wrap">
+              <h1 className="text-2xl font-bold text-[#0B2026] leading-tight">
+                Medical Facility Entity Resolver
+              </h1>
+              <span className="rounded-full bg-[#FF3621]/10 px-2.5 py-0.5 text-[11px] font-semibold text-[#FF3621] border border-[#FF3621]/20">
+                DAIS 2026 Hackathon
+              </span>
+            </div>
+            <p className="mt-1.5 text-sm text-muted-foreground max-w-2xl leading-relaxed">
+              A multi-agent AI pipeline that resolves, validates, and deduplicates Indian medical facility records
+              at scale — combining live web signals, geospatial checks, and clinical context scoring to produce
+              a trusted, production-ready dataset.
+            </p>
+          </div>
+          <button
+            onClick={() => navigate('/queue')}
+            className="flex-shrink-0 flex items-center gap-2 rounded-lg bg-[#FF3621] px-5 py-2.5 text-sm font-semibold text-white hover:bg-[#e02e1a] transition-colors shadow-sm"
+          >
+            <Sparkles className="h-4 w-4" />
+            Start validating
+            <ArrowRight className="h-4 w-4" />
+          </button>
         </div>
-        <div className="flex-1 min-w-0">
-          <h1 className="text-2xl font-bold text-[#0B2026] leading-tight">
-            Medical Facility Entity Resolver
-          </h1>
-          <p className="mt-1.5 text-sm text-muted-foreground max-w-xl leading-relaxed">
-            AI-assisted validation and reconciliation of Indian medical facility records.
-            Each cluster groups duplicate or conflicting source records — review the AI's
-            findings and promote a clean, verified record to the resolved dataset.
-          </p>
+
+        {/* Pipeline overview strip */}
+        <div className="mt-6 pt-5 border-t border-border flex flex-wrap items-center gap-2 text-[11px] font-medium text-muted-foreground">
+          <span className="flex items-center gap-1.5 rounded-full bg-muted px-3 py-1">
+            <Search className="h-3 w-3" /> Evidence fetcher
+          </span>
+          <ArrowRight className="h-3 w-3 text-border flex-shrink-0" />
+          <span className="flex items-center gap-1.5 rounded-full bg-muted px-3 py-1">
+            <Brain className="h-3 w-3" /> 8 parallel sub-agents
+          </span>
+          <ArrowRight className="h-3 w-3 text-border flex-shrink-0" />
+          <span className="flex items-center gap-1.5 rounded-full bg-muted px-3 py-1">
+            <GitMerge className="h-3 w-3" /> Supervisor synthesis
+          </span>
+          <ArrowRight className="h-3 w-3 text-border flex-shrink-0" />
+          <span className="flex items-center gap-1.5 rounded-full bg-[#FF3621]/10 text-[#FF3621] px-3 py-1 border border-[#FF3621]/20">
+            <ShieldCheck className="h-3 w-3" /> Promotion proposal
+          </span>
         </div>
-        <button
-          onClick={() => navigate('/queue')}
-          className="flex-shrink-0 flex items-center gap-2 rounded-lg bg-[#FF3621] px-5 py-2.5 text-sm font-semibold text-white hover:bg-[#e02e1a] transition-colors shadow-sm"
-        >
-          <Sparkles className="h-4 w-4" />
-          Start validating
-          <ArrowRight className="h-4 w-4" />
-        </button>
       </div>
 
       {/* Stats row */}
@@ -213,6 +355,26 @@ export function DashboardPage() {
         />
       </div>
 
+      {/* Sub-agent showcase */}
+      <div className="space-y-3">
+        <div className="flex items-center justify-between">
+          <div>
+            <h2 className="text-sm font-semibold text-[#0B2026]">Validation sub-agents</h2>
+            <p className="text-[11px] text-muted-foreground mt-0.5">
+              Each agent runs independently and returns a calibrated score. The Supervisor aggregates all signals into a final confidence rating.
+            </p>
+          </div>
+          <span className="rounded-full bg-[#0B2026]/5 px-3 py-1 text-[11px] font-semibold text-[#0B2026]">
+            8 agents · scores 0–20
+          </span>
+        </div>
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
+          {agents.map((a) => (
+            <AgentCard key={a.name} {...a} />
+          ))}
+        </div>
+      </div>
+
       {/* Two-column lower section */}
       <div className="grid grid-cols-1 gap-6 sm:grid-cols-2">
 
@@ -221,10 +383,10 @@ export function DashboardPage() {
           <h2 className="text-sm font-semibold text-[#0B2026]">How it works</h2>
           <ol className="space-y-3">
             {[
-              { icon: Layers,      color: 'text-amber-600 bg-amber-50',  step: '1', title: 'Pick a cluster', body: 'Select an ambiguous facility cluster from the resolution queue.' },
-              { icon: Sparkles,    color: 'text-blue-600 bg-blue-50',    step: '2', title: 'Run AI verification', body: 'The Supervisor agent dispatches sub-agents to verify contact, location, and clinical data.' },
-              { icon: GitBranch,   color: 'text-purple-600 bg-purple-50', step: '3', title: 'Review the proposal', body: 'Inspect field-by-field findings, edit any values, and add reviewer notes.' },
-              { icon: ShieldCheck, color: 'text-green-600 bg-green-50',  step: '4', title: 'Approve or defer', body: 'Approve to write a clean record to the resolved dataset, or defer for later.' },
+              { icon: Layers,      color: 'text-amber-600 bg-amber-50',   step: '1', title: 'Pick a cluster', body: 'Select an ambiguous facility cluster from the resolution queue. Each cluster groups duplicate or conflicting source records.' },
+              { icon: Sparkles,    color: 'text-blue-600 bg-blue-50',     step: '2', title: 'Run AI verification', body: 'The Supervisor dispatches up to 8 sub-agents in parallel — website, phone, location, social, context, source authority, duplicates, and similarity.' },
+              { icon: GitMerge,    color: 'text-purple-600 bg-purple-50', step: '3', title: 'Review the proposal', body: 'Inspect per-agent scores, field-by-field findings, and the Supervisor\'s confidence rating. Edit any values and add reviewer notes.' },
+              { icon: ShieldCheck, color: 'text-green-600 bg-green-50',   step: '4', title: 'Approve or defer', body: 'Approve to write a clean, verified record to the resolved dataset — or defer for manual review.' },
             ].map(({ color, step, title, body }) => (
               <li key={step} className="flex gap-3">
                 <div className={`mt-0.5 flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-full text-xs font-bold ${color}`}>
