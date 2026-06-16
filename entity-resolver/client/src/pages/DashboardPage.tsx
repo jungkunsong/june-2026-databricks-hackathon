@@ -18,6 +18,7 @@ import {
   Star,
   Copy,
   Brain,
+  ChevronDown,
 } from 'lucide-react';
 
 import { clustersApi, decisionLogApi, type DecisionLogEntry } from '../lib/api';
@@ -137,22 +138,31 @@ function AgentCard({
   description: string;
   signals: string[];
 }) {
+  const [open, setOpen] = useState(false);
   return (
-    <div className="rounded-xl border border-border bg-white px-5 py-4 shadow-sm space-y-3 hover:shadow-md transition-shadow">
-      <div className="flex items-center gap-3">
-        <div className={`flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-lg ${iconBg}`}>
-          <Icon className="h-4 w-4" />
+    <div className="rounded-xl border border-border bg-white shadow-sm overflow-hidden">
+      <button
+        onClick={() => setOpen((o) => !o)}
+        className="w-full flex items-center gap-3 px-4 py-3 hover:bg-muted/40 transition-colors text-left"
+      >
+        <div className={`flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-lg ${iconBg}`}>
+          <Icon className="h-3.5 w-3.5" />
         </div>
-        <p className="text-xs font-semibold text-[#0B2026]">{name}</p>
-      </div>
-      <p className="text-[11px] text-muted-foreground leading-relaxed">{description}</p>
-      <div className="flex flex-wrap gap-1">
-        {signals.map((s) => (
-          <span key={s} className="rounded-full bg-muted px-2 py-0.5 text-[10px] font-medium text-muted-foreground">
-            {s}
-          </span>
-        ))}
-      </div>
+        <p className="flex-1 text-xs font-semibold text-[#0B2026]">{name}</p>
+        <ChevronDown className={`h-3.5 w-3.5 text-muted-foreground transition-transform flex-shrink-0 ${open ? 'rotate-180' : ''}`} />
+      </button>
+      {open && (
+        <div className="px-4 pb-4 space-y-2 border-t border-border/50">
+          <p className="text-[11px] text-muted-foreground leading-relaxed pt-3">{description}</p>
+          <div className="flex flex-wrap gap-1">
+            {signals.map((s) => (
+              <span key={s} className="rounded-full bg-muted px-2 py-0.5 text-[10px] font-medium text-muted-foreground">
+                {s}
+              </span>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -280,15 +290,15 @@ export function DashboardPage() {
           <div className="grid grid-cols-[1fr_auto_1fr_auto_1fr] items-stretch gap-0">
 
             {/* Step 1 */}
-            <div className="rounded-xl bg-[#0B2026] px-5 py-5 flex flex-col gap-2">
+            <div className="rounded-xl bg-gray-100 border border-gray-200 px-5 py-5 flex flex-col gap-2">
               <div className="flex items-center gap-2">
-                <div className="flex h-7 w-7 items-center justify-center rounded-full bg-white/10">
-                  <Layers className="h-3.5 w-3.5 text-white" />
+                <div className="flex h-7 w-7 items-center justify-center rounded-full bg-gray-200">
+                  <Layers className="h-3.5 w-3.5 text-gray-600" />
                 </div>
-                <span className="text-[10px] font-semibold uppercase tracking-widest text-white/50">Step 1</span>
+                <span className="text-[10px] font-semibold uppercase tracking-widest text-gray-400">Step 1</span>
               </div>
-              <p className="text-sm font-bold text-white leading-snug">Pick One or More Facilities</p>
-              <p className="text-[11px] text-white/60 leading-relaxed">Select from the queue — each entry is a group of duplicate or conflicting records.</p>
+              <p className="text-sm font-bold text-[#0B2026] leading-snug">Pick One or More Facilities</p>
+              <p className="text-[11px] text-gray-500 leading-relaxed">Select from the queue — each entry is a group of duplicate or conflicting records.</p>
             </div>
 
             {/* Arrow */}
