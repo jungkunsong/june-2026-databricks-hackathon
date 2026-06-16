@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useNavigate, useLocation } from 'react-router';
-import { Search, MapPin, Building2, Layers, ArrowRight, Loader2, RefreshCw } from 'lucide-react';
+import { Search, MapPin, Building2, Layers, ArrowRight, Loader2, RefreshCw, CheckSquare, Square, Zap } from 'lucide-react';
 import { clustersApi, type ClusterSummary } from '../lib/api';
 
 export function QueuePage() {
@@ -15,6 +15,8 @@ export function QueuePage() {
   const [page, setPage] = useState(0);
   // Optimistically hidden cluster IDs — removed immediately on return from ResolvePage
   const [hiddenClusterIds, setHiddenClusterIds] = useState<Set<string>>(new Set());
+  // Bulk selection
+  const [selected, setSelected] = useState<Set<string>>(new Set());
   const PAGE_SIZE = 20;
 
   // When navigating back from ResolvePage after a promotion, hide the resolved
@@ -23,9 +25,8 @@ export function QueuePage() {
     const state = location.state as { resolvedClusterId?: string } | null;
     if (state?.resolvedClusterId) {
       setHiddenClusterIds((prev) => new Set([...prev, state.resolvedClusterId!]));
-      // Decrement total optimistically so the count drops immediately
+      setSelected((prev) => { const next = new Set(prev); next.delete(state.resolvedClusterId!); return next; });
       setTotal((prev) => (prev !== null ? Math.max(0, prev - 1) : prev));
-      // Clear the state so a back/forward navigation doesn't re-hide
       window.history.replaceState({}, '');
     }
   }, [location.state]);
@@ -46,13 +47,11 @@ export function QueuePage() {
       ]);
       setClusters(rows);
       setTotal(countResult.total);
-      // Once the server-filtered list lands, clear any optimistic hides that are
-      // already absent from the fresh results (avoids stale hides on page change).
       setHiddenClusterIds((prev) => {
         if (prev.size === 0) return prev;
         const freshIds = new Set(rows.map((r) => r.cluster_id));
-        const stillPresent = [...prev].filter((id) => freshIds.has(id));
-        return stillPresent.length === prev.size ? prev : new Set(stillPresent);
+        const stillHidden = new Set([...prev].filter((id) => !freshIds.has(id)));
+        return stillHidden.size === prev.size ? prev : stillHidden;
       });
     } catch (e) {
       setError(String(e));
@@ -65,12 +64,44 @@ export function QueuePage() {
     void loadClusters();
   }, [loadClusters]);
 
-  // Reset page on search change
   useEffect(() => { setPage(0); }, [debouncedSearch]);
+
+  // Clear selection when page changes
+  useEffect(() => { setSelected(new Set()); }, [page, debouncedSearch]);
+
+  const visibleClusters = clusters.filter((c) => !hiddenClusterIds.has(c.cluster_id));
+
+  function toggleSelect(id: string) {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  }
+
+  function toggleSelectAll() {
+    const visibleIds = visibleClusters.map((c) => c.cluster_id);
+    const allSelected = visibleIds.every((id) => selected.has(id));
+    if (allSelected) {
+      setSelected((prev) => { const next = new Set(prev); visibleIds.forEach((id) => next.delete(id)); return next; });
+    } else {
+      setSelected((prev) => new Set([...prev, ...visibleIds]));
+    }
+  }
 
   function startResolution(clusterId: string) {
     navigate(`/resolve/${clusterId}`);
   }
+
+  function startBulkValidation() {
+    const ids = [...selected];
+    if (ids.length === 0) return;
+    navigate('/bulk-review', { state: { clusterIds: ids } });
+  }
+
+  const visibleIds = visibleClusters.map((c) => c.cluster_id);
+  const allVisibleSelected = visibleIds.length > 0 && visibleIds.every((id) => selected.has(id));
+  const someVisibleSelected = visibleIds.some((id) => selected.has(id));
 
   return (
     <div className="space-y-6">
@@ -84,8 +115,8 @@ export function QueuePage() {
         </p>
       </div>
 
-      {/* Search + refresh */}
-      <div className="flex gap-2">
+      {/* Search + refresh + bulk action */}
+      <div className="flex gap-2 items-center">
         <div className="relative flex-1">
           <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
           <input
@@ -103,6 +134,15 @@ export function QueuePage() {
         >
           <RefreshCw className="h-4 w-4 text-muted-foreground" />
         </button>
+        {selected.size > 0 && (
+          <button
+            onClick={startBulkValidation}
+            className="flex items-center gap-2 rounded-md bg-[#FF3621] px-4 py-2 text-sm font-semibold text-white hover:bg-[#e02e1a] transition-colors shadow-sm"
+          >
+            <Zap className="h-4 w-4" />
+            Validate {selected.size} selected
+          </button>
+        )}
       </div>
 
       {/* Error */}
@@ -112,67 +152,116 @@ export function QueuePage() {
         </div>
       )}
 
-      {/* Cluster list */}
-      {loading ? (
-        <div className="flex items-center justify-center py-16">
-          <Loader2 className="h-6 w-6 animate-spin text-[#FF3621]" />
-        </div>
-      ) : clusters.length === 0 ? (
+      {/* Table */}
+      {!loading && visibleClusters.length === 0 && !error && (
         <div className="rounded-md border border-dashed border-border bg-white py-16 text-center text-sm text-muted-foreground">
-          No ambiguous clusters found{search ? ` matching "${search}"` : ''}.
+          {search ? `No facilities matching "${search}"` : 'No facilities in the queue.'}
         </div>
-      ) : (
-        <div className="space-y-2">
-          {clusters.filter((c) => !hiddenClusterIds.has(c.cluster_id)).map((cluster) => {
-            return (
-              <div
-                key={cluster.cluster_id}
-                className="flex items-center gap-4 rounded-lg border border-border bg-white px-4 py-3 shadow-sm transition-shadow hover:shadow-md"
-              >
-                {/* Icon */}
-                <div className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-full bg-[#EEEDE9]">
-                  <Building2 className="h-5 w-5 text-[#0B2026]" />
-                </div>
+      )}
 
-                {/* Info */}
-                <div className="min-w-0 flex-1">
-                  <div className="flex items-center gap-2">
-                    <span className="truncate font-medium text-[#0B2026]">
-                      {cluster.representative_name ?? cluster.cluster_id}
-                    </span>
-                  </div>
-                  <div className="mt-0.5 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-xs text-muted-foreground">
-                    {(cluster.city || cluster.country) && (
-                      <span className="flex items-center gap-1">
-                        <MapPin className="h-3 w-3" />
-                        {[cluster.city, cluster.state, cluster.country].filter(Boolean).join(', ')}
-                      </span>
-                    )}
-                    {cluster.facility_type && (
-                      <span className="flex items-center gap-1">
-                        <Building2 className="h-3 w-3" />
-                        {cluster.facility_type}
-                      </span>
-                    )}
-                    <span className="flex items-center gap-1">
-                      <Layers className="h-3 w-3" />
-                      {cluster.record_count} records
-                    </span>
-                  </div>
-                </div>
-
-                {/* Action */}
-                <div className="flex-shrink-0">
+      {(loading || visibleClusters.length > 0) && (
+        <div className="rounded-lg border border-border bg-white overflow-hidden shadow-sm">
+          <table className="w-full text-sm">
+            <thead className="bg-[#EEEDE9] border-b border-border">
+              <tr>
+                {/* Select-all checkbox */}
+                <th className="w-10 px-3 py-3">
                   <button
-                    onClick={() => startResolution(cluster.cluster_id)}
-                    className="flex items-center gap-1 rounded-md bg-[#FF3621] px-3 py-1.5 text-xs font-medium text-white hover:bg-[#e02e1a]"
+                    onClick={toggleSelectAll}
+                    className="flex items-center justify-center text-muted-foreground hover:text-[#0B2026] transition-colors"
+                    title={allVisibleSelected ? 'Deselect all' : 'Select all'}
                   >
-                    Review <ArrowRight className="h-3 w-3" />
+                    {allVisibleSelected
+                      ? <CheckSquare className="h-4 w-4 text-[#FF3621]" />
+                      : someVisibleSelected
+                        ? <CheckSquare className="h-4 w-4 text-[#FF3621]/50" />
+                        : <Square className="h-4 w-4" />
+                    }
                   </button>
-                </div>
-              </div>
-            );
-          })}
+                </th>
+                <th className="px-4 py-3 text-left text-xs font-semibold text-[#0B2026]">Facility</th>
+                <th className="hidden px-4 py-3 text-left text-xs font-semibold text-[#0B2026] md:table-cell">Location</th>
+                <th className="hidden px-4 py-3 text-left text-xs font-semibold text-[#0B2026] sm:table-cell">Records</th>
+                <th className="w-10 px-3 py-3" />
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-border">
+              {loading
+                ? Array.from({ length: 5 }).map((_, i) => (
+                    <tr key={i} className="animate-pulse">
+                      <td className="px-3 py-4"><div className="h-4 w-4 rounded bg-muted" /></td>
+                      <td className="px-4 py-4"><div className="h-4 w-48 rounded bg-muted" /></td>
+                      <td className="hidden px-4 py-4 md:table-cell"><div className="h-4 w-32 rounded bg-muted" /></td>
+                      <td className="hidden px-4 py-4 sm:table-cell"><div className="h-4 w-12 rounded bg-muted" /></td>
+                      <td className="px-3 py-4" />
+                    </tr>
+                  ))
+                : visibleClusters.map((cluster) => {
+                    const isSelected = selected.has(cluster.cluster_id);
+                    return (
+                      <tr
+                        key={cluster.cluster_id}
+                        className={`transition-colors cursor-pointer ${isSelected ? 'bg-[#FF3621]/5' : 'hover:bg-[#F9F7F4]'}`}
+                        onClick={() => toggleSelect(cluster.cluster_id)}
+                      >
+                        {/* Checkbox */}
+                        <td className="px-3 py-4" onClick={(e) => e.stopPropagation()}>
+                          <button
+                            onClick={() => toggleSelect(cluster.cluster_id)}
+                            className="flex items-center justify-center text-muted-foreground hover:text-[#FF3621] transition-colors"
+                          >
+                            {isSelected
+                              ? <CheckSquare className="h-4 w-4 text-[#FF3621]" />
+                              : <Square className="h-4 w-4" />
+                            }
+                          </button>
+                        </td>
+
+                        {/* Facility name + type */}
+                        <td className="px-4 py-4">
+                          <div className="font-medium text-[#0B2026] leading-tight">{cluster.representative_name}</div>
+                          {cluster.facility_type && (
+                            <div className="mt-0.5 flex items-center gap-1 text-xs text-muted-foreground">
+                              <Building2 className="h-3 w-3" />
+                              {cluster.facility_type}
+                            </div>
+                          )}
+                        </td>
+
+                        {/* Location */}
+                        <td className="hidden px-4 py-4 md:table-cell">
+                          {(cluster.city || cluster.country) && (
+                            <div className="flex items-center gap-1 text-xs text-muted-foreground">
+                              <MapPin className="h-3 w-3 flex-shrink-0" />
+                              {[cluster.city, cluster.state, cluster.country].filter(Boolean).join(', ')}
+                            </div>
+                          )}
+                        </td>
+
+                        {/* Record count */}
+                        <td className="hidden px-4 py-4 sm:table-cell">
+                          <div className="flex items-center gap-1 text-xs text-muted-foreground">
+                            <Layers className="h-3 w-3" />
+                            {cluster.record_count} records
+                          </div>
+                        </td>
+
+                        {/* Open arrow — stops propagation so click doesn't toggle checkbox */}
+                        <td className="px-3 py-4" onClick={(e) => e.stopPropagation()}>
+                          <button
+                            onClick={() => startResolution(cluster.cluster_id)}
+                            className="flex h-7 w-7 items-center justify-center rounded-md border border-border bg-white text-muted-foreground hover:bg-[#FF3621] hover:text-white hover:border-[#FF3621] transition-colors"
+                            title="Open"
+                          >
+                            <ArrowRight className="h-3.5 w-3.5" />
+                          </button>
+                        </td>
+                      </tr>
+                    );
+                  })
+              }
+            </tbody>
+          </table>
         </div>
       )}
 

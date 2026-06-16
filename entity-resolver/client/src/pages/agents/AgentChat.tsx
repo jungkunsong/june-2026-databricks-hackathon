@@ -34,70 +34,73 @@ interface AgentChatProps {
  * Strip raw sub-agent JSON blobs and the PROMOTION_PROPOSAL block from a
  * supervisor message before displaying it to the user.
  *
- * The supervisor sometimes emits tool-result JSON objects inline — e.g.
- * {"agent":"phone-validator","status":"LANDLINE_WARNING",...}
- * — followed by the human-readable summary. We want to keep only the prose.
- *
- * Strategy:
- *   1. Remove every top-level JSON object that starts with {"agent": or
- *      {"name": (evidence-fetcher result) at the beginning of a line.
- *   2. Remove the PROMOTION_PROPOSAL: ... block entirely.
- *   3. Collapse resulting blank lines.
+ * The supervisor emits tool-result JSON objects concatenated directly before
+ * the human-readable prose — sometimes with newlines between them, sometimes
+ * without (e.g. `}{` back-to-back as a single streaming string). A line-based
+ * approach fails in the no-newline case, so we use a character-level scanner
+ * that walks the string, extracts every top-level JSON object, checks whether
+ * it looks like a sub-agent result, and removes it.
  */
 function cleanContent(raw: string): string {
-  // Remove PROMOTION_PROPOSAL block (everything from the marker to end of string)
+  // 1. Remove PROMOTION_PROPOSAL block (everything from the marker to end)
   let s = raw.replace(/PROMOTION_PROPOSAL:[\s\S]*$/, '').trimEnd();
 
-  // Remove standalone JSON objects emitted by sub-agents.
-  // These always start with { at the beginning of a line and contain an "agent" key
-  // or are the evidence-fetcher blob (starts with {"name": or {"row_id":).
-  // We strip them by scanning line-by-line and skipping any line that opens a
-  // JSON object we can fully parse that has a known agent-result shape.
-  const lines = s.split('\n');
-  const kept: string[] = [];
+  // 2. Walk the string character-by-character, collecting top-level JSON
+  //    objects. For each one, decide whether to keep or drop it.
+  let result = '';
   let i = 0;
-  while (i < lines.length) {
-    const line = lines[i];
-    const trimmed = line.trimStart();
-    // Candidate: line starts with { — try to collect a complete JSON object
-    if (trimmed.startsWith('{')) {
-      // Accumulate lines until braces balance
-      let buf = '';
+  while (i < s.length) {
+    // Skip whitespace between tokens
+    if (s[i] === '\n' || s[i] === '\r' || s[i] === ' ' || s[i] === '\t') {
+      // Preserve whitespace that isn't between two JSON blobs
+      result += s[i];
+      i++;
+      continue;
+    }
+
+    if (s[i] === '{') {
+      // Extract the full balanced JSON object starting at i
       let depth = 0;
+      let inString = false;
+      let escape = false;
       let j = i;
-      let found = false;
-      while (j < lines.length) {
-        buf += (j > i ? '\n' : '') + lines[j];
-        for (const ch of lines[j]) {
-          if (ch === '{') depth++;
-          else if (ch === '}') depth--;
-        }
-        if (depth <= 0) { found = true; break; }
+      while (j < s.length) {
+        const ch = s[j];
+        if (escape) { escape = false; j++; continue; }
+        if (ch === '\\' && inString) { escape = true; j++; continue; }
+        if (ch === '"') { inString = !inString; j++; continue; }
+        if (inString) { j++; continue; }
+        if (ch === '{') depth++;
+        else if (ch === '}') { depth--; if (depth === 0) { j++; break; } }
         j++;
       }
-      if (found) {
-        try {
-          const obj = JSON.parse(buf) as Record<string, unknown>;
-          // Drop if it looks like a sub-agent result
-          if (
-            typeof obj['agent'] === 'string' ||   // all sub-agent results
-            ('name' in obj && 'latitude' in obj) || // evidence-fetcher
-            ('row_id' in obj && 'candidates' in obj) // duplicate-detector alt shape
-          ) {
-            i = j + 1;
-            continue;
-          }
-        } catch {
-          // Not valid JSON — keep the line as-is
+
+      const blob = s.slice(i, j);
+      let drop = false;
+      try {
+        const obj = JSON.parse(blob) as Record<string, unknown>;
+        // Drop if it's a sub-agent result or evidence-fetcher output
+        if (
+          typeof obj['agent'] === 'string' ||          // all sub-agent results
+          ('name' in obj && 'latitude' in obj) ||       // evidence-fetcher
+          ('row_id' in obj && 'candidates' in obj)      // duplicate-detector alt
+        ) {
+          drop = true;
         }
+      } catch {
+        // Not valid JSON — keep as-is
       }
+
+      if (!drop) result += blob;
+      i = j;
+    } else {
+      result += s[i];
+      i++;
     }
-    kept.push(line);
-    i++;
   }
 
-  // Collapse runs of 3+ blank lines down to 2
-  return kept.join('\n').replace(/\n{3,}/g, '\n\n').trim();
+  // 3. Collapse runs of 3+ blank lines and trim
+  return result.replace(/\n{3,}/g, '\n\n').trim();
 }
 
 export function AgentChat({ agentName, initialMessage, placeholder, started = false, onStreamingChange, onMessagesChange }: AgentChatProps = {}) {
