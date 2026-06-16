@@ -101,14 +101,25 @@ function OutcomeBar({ entries }: { entries: DecisionLogEntry[] }) {
 }
 
 function RecentDecisionRow({ entry }: { entry: DecisionLogEntry }) {
+  const navigate = useNavigate();
   const OUTCOME_STYLE: Record<string, string> = {
     verified:  'text-green-700 bg-green-50 border-green-200',
     corrected: 'text-blue-700 bg-blue-50 border-blue-200',
     partial:   'text-amber-700 bg-amber-50 border-amber-200',
     deferred:  'text-gray-600 bg-gray-50 border-gray-200',
   };
+  const handleClick = () => {
+    if (entry.cluster_id) {
+      navigate(`/resolve/${entry.cluster_id}`);
+    } else {
+      navigate('/decisions');
+    }
+  };
   return (
-    <div className="flex items-center justify-between gap-3 py-2 border-b border-border/50 last:border-0">
+    <button
+      onClick={handleClick}
+      className="w-full flex items-center justify-between gap-3 py-2 border-b border-border/50 last:border-0 hover:bg-muted/40 transition-colors rounded px-1 -mx-1 text-left"
+    >
       <div className="min-w-0">
         <p className="text-sm font-medium text-[#0B2026] truncate">
           {entry.facility_name ?? <span className="italic text-muted-foreground">Unknown</span>}
@@ -120,7 +131,7 @@ function RecentDecisionRow({ entry }: { entry: DecisionLogEntry }) {
       <span className={`flex-shrink-0 rounded border px-2 py-0.5 text-[10px] font-semibold ${OUTCOME_STYLE[entry.outcome] ?? 'text-gray-600 bg-gray-50 border-gray-200'}`}>
         {entry.outcome}
       </span>
-    </div>
+    </button>
   );
 }
 
