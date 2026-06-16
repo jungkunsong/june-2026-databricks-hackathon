@@ -148,6 +148,9 @@ export function AgentChat({ agentName, initialMessage, placeholder, started = fa
   const seededRef = useRef(false);
 
   const handleEvent = (event: AgentChatEvent) => {
+    // Log every event so we can see what the runtime actually sends
+    console.log('[AgentChat event]', event.type, JSON.stringify(event).slice(0, 300));
+
     if (
       event.type === 'response.output_item.added' &&
       event.item?.type === 'function_call' &&
