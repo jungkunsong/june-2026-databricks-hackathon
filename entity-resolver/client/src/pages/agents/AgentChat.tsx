@@ -5,7 +5,7 @@ import {
   useAgentChat,
   usePluginClientConfig,
 } from '@databricks/appkit-ui/react';
-import { Send, Loader2, Bot, User } from 'lucide-react';
+import { Send, Loader2, Bot, User, Zap } from 'lucide-react';
 
 interface Message {
   id: string;
@@ -28,6 +28,26 @@ interface AgentChatProps {
   onStreamingChange?: (streaming: boolean) => void;
   /** Called whenever the message list changes — lets parent parse proposals */
   onMessagesChange?: (messages: { role: string; content: string }[]) => void;
+}
+
+// ── Agent activity feed ───────────────────────────────────────────────────────
+
+const AGENT_LABELS: Record<string, string> = {
+  'agent-evidence-fetcher':               'Fetching raw record…',
+  'agent-website-validator':              'Checking website…',
+  'agent-phone-validator':                'Validating phone number…',
+  'agent-location-validator':             'Verifying location & coordinates…',
+  'agent-facebook-validator':             'Checking Facebook page…',
+  'agent-similarity-scorer':              'Scoring name & address similarity…',
+  'agent-duplicate-detector':             'Scanning for duplicate records…',
+  'agent-context-validator':              'Assessing record completeness…',
+  'agent-skill-matcher':                  'Matching specialties to equipment…',
+  'agent-source-authority-validator':     'Checking source authority…',
+  'agent-controlled-vocabulary-validator':'Validating controlled vocabulary…',
+};
+
+function agentLabel(toolName: string): string {
+  return AGENT_LABELS[toolName] ?? `Calling ${toolName.replace(/^agent-/, '').replace(/-/g, ' ')}…`;
 }
 
 /**
@@ -251,8 +271,30 @@ export function AgentChat({ agentName, initialMessage, placeholder, started = fa
             </p>
           </div>
         )}
-        {messages.map((m) => {
-          if (m.role === 'tool') return null;
+        {messages.map((m, idx) => {
+          // ── Tool call row — live activity feed ──────────────────────────
+          if (m.role === 'tool') {
+            // Only show tool messages while streaming (hide once final answer arrives)
+            if (!isStreaming) return null;
+            const label = agentLabel(m.toolName ?? '');
+            // The very last tool message gets a spinner; earlier ones get a check
+            const isLatest = idx === messages.map((x, i) => x.role === 'tool' ? i : -1).filter(i => i >= 0).at(-1);
+            return (
+              <div key={m.id} className="flex items-center gap-2 pl-1">
+                <div className="flex h-5 w-5 flex-shrink-0 items-center justify-center rounded-full bg-[#EEEDE9]">
+                  {isLatest
+                    ? <Loader2 className="h-3 w-3 animate-spin text-[#FF3621]" />
+                    : <Zap className="h-3 w-3 text-green-600" />
+                  }
+                </div>
+                <span className={`text-xs ${isLatest ? 'text-[#0B2026] font-medium' : 'text-muted-foreground line-through'}`}>
+                  {label}
+                </span>
+              </div>
+            );
+          }
+
+          // ── User / assistant bubble ──────────────────────────────────────
           const isUser = m.role === 'user';
           return (
             <div key={m.id} className={`flex items-start gap-2 ${isUser ? 'flex-row-reverse' : ''}`}>
@@ -266,7 +308,7 @@ export function AgentChat({ agentName, initialMessage, placeholder, started = fa
                 <div className="whitespace-pre-wrap leading-relaxed">
                   {(m.content ? cleanContent(m.content) : '') || (isStreaming && m.id === pendingAssistantId ? (
                     <span className="flex items-center gap-1 text-muted-foreground">
-                      <Loader2 className="h-3 w-3 animate-spin" /> Thinking…
+                      <Loader2 className="h-3 w-3 animate-spin" /> Preparing summary…
                     </span>
                   ) : '')}
                 </div>
