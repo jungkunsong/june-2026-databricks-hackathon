@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useParams, useNavigate, Link, useLocation } from 'react-router';
 import {
   ArrowLeft,
@@ -17,6 +17,8 @@ import {
   Sparkles,
   X,
   Check,
+  PanelLeftClose,
+  PanelLeftOpen,
 } from 'lucide-react';
 import { clustersApi, tasksApi, promoteApi, mergeApi, type FacilityRecord, type ResolutionTask, type DecisionLogEntry } from '../lib/api';
 import { AgentChat } from './agents/AgentChat';
@@ -500,6 +502,38 @@ export function ResolvePage() {
   const [chatCollapsed, setChatCollapsed] = useState(false);
   const [proposalCollapsed, setProposalCollapsed] = useState(false);
 
+  // ── Draggable split pane ──────────────────────────────────────────────────
+  // leftPct: width of the left panel as a percentage of the container (20–80)
+  const [leftPct, setLeftPct] = useState(50);
+  const [leftCollapsed, setLeftCollapsed] = useState(false);
+  const splitContainerRef = useRef<HTMLDivElement>(null);
+  const isDraggingRef = useRef(false);
+  const prevLeftPctRef = useRef(50); // remembered width for restore after collapse
+
+  const onDividerMouseDown = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    isDraggingRef.current = true;
+    document.body.style.cursor = 'col-resize';
+    document.body.style.userSelect = 'none';
+
+    const onMouseMove = (ev: MouseEvent) => {
+      if (!isDraggingRef.current || !splitContainerRef.current) return;
+      const rect = splitContainerRef.current.getBoundingClientRect();
+      const pct = ((ev.clientX - rect.left) / rect.width) * 100;
+      setLeftPct(Math.min(80, Math.max(20, pct)));
+      setLeftCollapsed(false);
+    };
+    const onMouseUp = () => {
+      isDraggingRef.current = false;
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+      window.removeEventListener('mousemove', onMouseMove);
+      window.removeEventListener('mouseup', onMouseUp);
+    };
+    window.addEventListener('mousemove', onMouseMove);
+    window.addEventListener('mouseup', onMouseUp);
+  }, []);
+
   // Auto-collapse chat and expand proposal the first time a proposal lands
   const proposalSeenRef = React.useRef(false);
   useEffect(() => {
@@ -785,14 +819,29 @@ export function ResolvePage() {
         </span>
       </div>
 
-      {/* Two-column workspace */}
-      <div className="grid grid-cols-2 gap-4 flex-1 min-h-0">
+      {/* Two-column workspace — draggable split */}
+      <div ref={splitContainerRef} className="flex flex-1 min-h-0 gap-0">
 
         {/* ── LEFT: Raw records ── */}
-        <div className="flex flex-col gap-3 overflow-y-auto pr-1">
-          <h2 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground flex-shrink-0">
-            Raw Records ({records.length})
-          </h2>
+        <div
+          className="flex flex-col gap-3 overflow-y-auto pr-2 flex-shrink-0"
+          style={{ width: leftCollapsed ? 0 : `${leftPct}%`, minWidth: leftCollapsed ? 0 : undefined, overflow: leftCollapsed ? 'hidden' : undefined }}
+        >
+          <div className="flex items-center justify-between flex-shrink-0">
+            <h2 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+              Raw Records ({records.length})
+            </h2>
+            <button
+              onClick={() => {
+                if (!leftCollapsed) prevLeftPctRef.current = leftPct;
+                setLeftCollapsed((v) => !v);
+              }}
+              title={leftCollapsed ? 'Expand records panel' : 'Collapse records panel'}
+              className="p-1 rounded hover:bg-muted/50 text-muted-foreground hover:text-[#0B2026] transition-colors"
+            >
+              <PanelLeftClose className="h-3.5 w-3.5" />
+            </button>
+          </div>
 
           {records.length === 0 && (
             <div className="rounded-md border border-dashed border-border bg-white py-10 text-center text-sm text-muted-foreground">
@@ -850,8 +899,31 @@ export function ResolvePage() {
           ))}
         </div>
 
+        {/* ── DIVIDER — drag to resize, click collapse button to restore ── */}
+        <div className="relative flex-shrink-0 flex items-stretch">
+          {/* Collapse/expand toggle — floats on the divider */}
+          {leftCollapsed && (
+            <button
+              onClick={() => {
+                setLeftCollapsed(false);
+                setLeftPct(prevLeftPctRef.current);
+              }}
+              title="Expand records panel"
+              className="absolute left-1/2 top-4 -translate-x-1/2 z-10 flex items-center justify-center h-6 w-6 rounded-full bg-white border border-border shadow-sm text-muted-foreground hover:text-[#0B2026] hover:border-[#FF3621] transition-colors"
+            >
+              <PanelLeftOpen className="h-3.5 w-3.5" />
+            </button>
+          )}
+          <div
+            onMouseDown={onDividerMouseDown}
+            className="w-2 mx-1 cursor-col-resize flex items-center justify-center group"
+          >
+            <div className="w-px h-full bg-border group-hover:bg-[#FF3621]/40 transition-colors" />
+          </div>
+        </div>
+
         {/* ── RIGHT: Agent panel ── */}
-        <div className="flex flex-col rounded-lg border border-border bg-white overflow-hidden">
+        <div className="flex flex-col rounded-lg border border-border bg-white overflow-hidden flex-1 min-w-0">
 
           {/* Panel header */}
           <div className="flex items-center justify-between border-b border-border px-4 py-2.5 flex-shrink-0">
