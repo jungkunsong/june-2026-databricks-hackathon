@@ -203,9 +203,12 @@ export function AgentChat({ agentName, initialMessage, placeholder, started = fa
     setPendingAssistantId(assistantId);
     const trySend = async (attemptsLeft: number): Promise<void> => {
       try {
+        console.log('[AgentChat] calling send, agent=', activeAgent, 'msg=', msg.slice(0, 60));
         await sendRef.current!(msg);
+        console.log('[AgentChat] send resolved');
         sendDoneRef.current = true;
       } catch (err) {
+        console.error('[AgentChat] send error:', err);
         const is429 = String(err).includes('429') || String(err).toLowerCase().includes('rate limit') || String(err).toLowerCase().includes('too many requests');
         if (is429 && attemptsLeft > 1) {
           await new Promise((r) => setTimeout(r, (4 - attemptsLeft) * 3000));
@@ -213,7 +216,7 @@ export function AgentChat({ agentName, initialMessage, placeholder, started = fa
         } else { throw err; }
       }
     };
-    void trySend(3);
+    void trySend(3).catch((err) => console.error('[AgentChat] trySend failed:', err));
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [started, activeAgent, initialMessage]);
 
