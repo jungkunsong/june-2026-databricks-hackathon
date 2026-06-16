@@ -246,14 +246,15 @@ export function QueuePage() {
                           </div>
                         </td>
 
-                        {/* Open arrow — stops propagation so click doesn't toggle checkbox */}
+                        {/* Validate button — stops propagation so click doesn't toggle checkbox */}
                         <td className="px-3 py-4" onClick={(e) => e.stopPropagation()}>
                           <button
                             onClick={() => startResolution(cluster.cluster_id)}
-                            className="flex h-7 w-7 items-center justify-center rounded-md border border-border bg-white text-muted-foreground hover:bg-[#FF3621] hover:text-white hover:border-[#FF3621] transition-colors"
-                            title="Open"
+                            className="flex items-center gap-1.5 rounded-md border border-border bg-white px-2.5 py-1.5 text-xs font-medium text-muted-foreground hover:bg-[#FF3621] hover:text-white hover:border-[#FF3621] transition-colors whitespace-nowrap"
+                            title="Validate this cluster"
                           >
-                            <ArrowRight className="h-3.5 w-3.5" />
+                            <ArrowRight className="h-3 w-3" />
+                            Validate
                           </button>
                         </td>
                       </tr>
