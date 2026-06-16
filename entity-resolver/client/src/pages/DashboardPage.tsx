@@ -268,12 +268,12 @@ export function DashboardPage() {
           </div>
           <div className="flex-1 min-w-0">
             <div>
-              <p className="text-[11px] font-semibold uppercase tracking-widest text-[#FF3621] mb-1">
-                Building and Optimizing the Facility Trust Desk
-              </p>
               <h1 className="text-2xl font-bold text-[#0B2026] leading-tight">
-                Medical Facility Entity Resolver
+                Facility Trust Operating System
               </h1>
+              <p className="text-[11px] font-semibold uppercase tracking-widest text-muted-foreground mt-1">
+                Building and Optimizing the Facility Trust Desk with AI Agents
+              </p>
             </div>
             <p className="mt-1.5 text-sm text-muted-foreground max-w-2xl leading-relaxed">
               A multi-agent AI pipeline that resolves, validates, and deduplicates Indian medical facility records
