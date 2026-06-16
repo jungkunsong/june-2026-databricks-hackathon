@@ -1,7 +1,7 @@
 import { createBrowserRouter, RouterProvider, NavLink, Outlet } from 'react-router';
 import { useState } from 'react';
 import { Sheet, SheetContent, SheetHeader, SheetTitle, useIsMobile } from '@databricks/appkit-ui/react';
-import { Menu, Activity, CheckCircle2, ListChecks, LayoutDashboard } from 'lucide-react';
+import { Menu, CheckCircle2, ListChecks, LayoutDashboard, ShieldCheck } from 'lucide-react';
 import { DashboardPage } from './pages/DashboardPage';
 import { QueuePage } from './pages/QueuePage';
 import { ResolvePage } from './pages/ResolvePage';
@@ -58,7 +58,7 @@ function Layout() {
             </button>
           )}
           <div className="flex items-center gap-2">
-            <Activity className="h-5 w-5 text-[#FF3621]" />
+            <ShieldCheck className="h-5 w-5 text-[#FF3621]" />
             <span className="font-semibold tracking-tight">Facility Trust OS</span>
             <span className="hidden text-xs text-white/50 sm:inline">
               Facility Trust Desk

@@ -306,10 +306,10 @@ export function DashboardPage() {
                 <div className="flex h-7 w-7 items-center justify-center rounded-full bg-gray-200">
                   <Layers className="h-3.5 w-3.5 text-gray-600" />
                 </div>
-                <span className="text-[10px] font-semibold uppercase tracking-widest text-gray-400">Step 1</span>
+                <span className="text-xs font-bold uppercase tracking-widest text-gray-500">Step 1</span>
               </div>
-              <p className="text-sm font-bold text-[#0B2026] leading-snug">Pick One or More Facilities</p>
-              <p className="text-[11px] text-gray-500 leading-relaxed">Select from the queue — each entry is a group of duplicate or conflicting records.</p>
+              <p className="text-base font-bold text-[#0B2026] leading-snug">Pick One or More Facilities</p>
+              <p className="text-xs text-gray-600 leading-relaxed">Select from the queue — each entry is a group of duplicate or conflicting records.</p>
             </div>
 
             {/* Arrow */}
@@ -323,10 +323,10 @@ export function DashboardPage() {
                 <div className="flex h-7 w-7 items-center justify-center rounded-full bg-[#FF3621]/15">
                   <Brain className="h-3.5 w-3.5 text-[#FF3621]" />
                 </div>
-                <span className="text-[10px] font-semibold uppercase tracking-widest text-[#FF3621]/70">Step 2</span>
+                <span className="text-xs font-bold uppercase tracking-widest text-[#FF3621]/80">Step 2</span>
               </div>
-              <p className="text-sm font-bold text-[#0B2026] leading-snug">AI Agents Validate</p>
-              <p className="text-[11px] text-muted-foreground leading-relaxed">7 sub-agents run in parallel — website, contacts, location, social, context, source authority, and duplicates.</p>
+              <p className="text-base font-bold text-[#0B2026] leading-snug">AI Agents Validate</p>
+              <p className="text-xs text-gray-600 leading-relaxed">7 sub-agents run in parallel — website, contacts, location, social, context, source authority, and duplicates.</p>
             </div>
 
             {/* Arrow */}
@@ -340,10 +340,10 @@ export function DashboardPage() {
                 <div className="flex h-7 w-7 items-center justify-center rounded-full bg-green-100">
                   <ShieldCheck className="h-3.5 w-3.5 text-green-600" />
                 </div>
-                <span className="text-[10px] font-semibold uppercase tracking-widest text-green-600/70">Step 3</span>
+                <span className="text-xs font-bold uppercase tracking-widest text-green-700/70">Step 3</span>
               </div>
-              <p className="text-sm font-bold text-[#0B2026] leading-snug">You Approve</p>
-              <p className="text-[11px] text-muted-foreground leading-relaxed">Review the AI's proposal and confidence score, then promote a clean record — or defer for manual review.</p>
+              <p className="text-base font-bold text-[#0B2026] leading-snug">You Approve</p>
+              <p className="text-xs text-gray-600 leading-relaxed">Review the AI's proposal and confidence score, then promote a clean record — or defer for manual review.</p>
             </div>
 
           </div>
