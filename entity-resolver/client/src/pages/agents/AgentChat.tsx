@@ -103,8 +103,12 @@ export function AgentChat({ agentName, initialMessage, placeholder, started = fa
   const sendDoneRef = useRef(false);
 
   // ── Activity feed state ───────────────────────────────────────────────────
-  // allAgents: full ordered list extracted from events (populated when batch arrives)
-  // visibleCount: how many rows are currently shown (animated up from 0)
+  // isWaiting: true from the moment send() fires until playback animation finishes.
+  //   The proxy buffers all SSE until the run completes, so isStreaming stays false
+  //   during the entire agent run. isWaiting lets us show the feed regardless.
+  // allAgents: full ordered list extracted from the event batch when it arrives
+  // visibleCount: how many rows are currently shown (animated up one at a time)
+  const [isWaiting, setIsWaiting] = useState(false);
   const [allAgents, setAllAgents] = useState<string[]>([]);
   const [visibleCount, setVisibleCount] = useState(0);
   // playback timer ref so we can clear it on reset
@@ -160,19 +164,24 @@ export function AgentChat({ agentName, initialMessage, placeholder, started = fa
   // ── Playback animation: when allAgents grows, step visibleCount up one at a time
   useEffect(() => {
     if (allAgents.length === 0) return;
-    if (visibleCount >= allAgents.length) return;
-
-    // Clear any existing timer before scheduling the next step
+    if (visibleCount >= allAgents.length) {
+      // Animation done — if streaming is also finished, clear waiting
+      if (!isStreaming) setIsWaiting(false);
+      return;
+    }
     if (playbackTimerRef.current) clearTimeout(playbackTimerRef.current);
-
     playbackTimerRef.current = setTimeout(() => {
       setVisibleCount((c) => Math.min(c + 1, allAgents.length));
     }, PLAYBACK_STEP_MS);
+    return () => { if (playbackTimerRef.current) clearTimeout(playbackTimerRef.current); };
+  }, [allAgents, visibleCount, isStreaming]);
 
-    return () => {
-      if (playbackTimerRef.current) clearTimeout(playbackTimerRef.current);
-    };
-  }, [allAgents, visibleCount]);
+  // When streaming ends and playback is already complete, clear waiting
+  useEffect(() => {
+    if (!isStreaming && visibleCount >= allAgents.length && allAgents.length > 0) {
+      setIsWaiting(false);
+    }
+  }, [isStreaming, visibleCount, allAgents.length]);
 
   useEffect(() => { onStreamingChange?.(isStreaming); }, [isStreaming, onStreamingChange]);
 
@@ -193,6 +202,7 @@ export function AgentChat({ agentName, initialMessage, placeholder, started = fa
   // Helper to reset all feed state between runs
   const resetFeed = () => {
     if (playbackTimerRef.current) clearTimeout(playbackTimerRef.current);
+    setIsWaiting(true);
     setAllAgents([]);
     setVisibleCount(0);
     lastProcessedEventIdx.current = 0;
@@ -244,12 +254,11 @@ export function AgentChat({ agentName, initialMessage, placeholder, started = fa
     sendDoneRef.current = true;
   };
 
-  // Rows to show: slice allAgents to visibleCount; the last visible one gets a spinner
-  // while streaming OR while the playback animation is still stepping through
+  // Feed visibility: show while waiting for results OR while playback is animating
   const feedRows = allAgents.slice(0, visibleCount);
   const playbackInProgress = visibleCount < allAgents.length;
-  const showFeedSpinner = isStreaming || playbackInProgress;
-
+  // Spinner on the last row while: no agents yet (still waiting) OR mid-playback
+  const lastRowSpinning = isWaiting && (allAgents.length === 0 || playbackInProgress);
   return (
     <div className="flex h-full flex-col">
       <div ref={scrollRef} className="flex-1 overflow-y-auto p-4">
@@ -270,35 +279,47 @@ export function AgentChat({ agentName, initialMessage, placeholder, started = fa
 
             return (
               <div key={m.id}>
-                {/* ── Message bubble ── */}
                 <div className={`flex items-start gap-2 ${isUser ? 'flex-row-reverse' : ''}`}>
                   <div className={`flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-full ${isUser ? 'bg-[#FF3621]' : 'bg-[#0B2026]'}`}>
                     {isUser ? <User className="h-3 w-3 text-white" /> : <Bot className="h-3 w-3 text-white" />}
                   </div>
                   <div className={`max-w-[85%] rounded-lg px-3 py-2 text-sm ${isUser ? 'bg-[#FF3621]/10 text-[#0B2026]' : 'bg-[#EEEDE9] text-[#0B2026]'}`}>
-                    {/* ── Activity feed — visible while streaming or animating ── */}
-                    {isPendingBubble && (isStreaming || playbackInProgress) && feedRows.length > 0 && (
+
+                    {/* ── Activity feed — shown while waiting or animating ── */}
+                    {isPendingBubble && (isWaiting || playbackInProgress) && (
                       <div className="mb-2 space-y-1.5">
-                        {feedRows.map((name, idx) => {
-                          const isLatestRow = idx === feedRows.length - 1;
-                          const isActive = isLatestRow && showFeedSpinner;
-                          return (
-                            <div key={name} className="flex items-center gap-2">
-                              <div className="flex h-5 w-5 flex-shrink-0 items-center justify-center rounded-full bg-white/60">
-                                {isActive
-                                  ? <Loader2 className="h-3 w-3 animate-spin text-[#FF3621]" />
-                                  : <Zap className="h-3 w-3 text-green-600" />
-                                }
-                              </div>
-                              <span className={`text-xs ${isActive ? 'text-[#0B2026] font-medium' : 'text-muted-foreground line-through'}`}>
-                                {agentLabel(name)}
-                              </span>
+                        {feedRows.length === 0 ? (
+                          // No agents yet — proxy is still buffering, show pulsing placeholder
+                          <div className="flex items-center gap-2">
+                            <div className="flex h-5 w-5 flex-shrink-0 items-center justify-center rounded-full bg-white/60">
+                              <Loader2 className="h-3 w-3 animate-spin text-[#FF3621]" />
                             </div>
-                          );
-                        })}
+                            <span className="text-xs text-muted-foreground animate-pulse">Contacting agents…</span>
+                          </div>
+                        ) : (
+                          feedRows.map((name, idx) => {
+                            const isLatestRow = idx === feedRows.length - 1;
+                            const spinning = isLatestRow && lastRowSpinning;
+                            return (
+                              <div key={name} className="flex items-center gap-2">
+                                <div className="flex h-5 w-5 flex-shrink-0 items-center justify-center rounded-full bg-white/60">
+                                  {spinning
+                                    ? <Loader2 className="h-3 w-3 animate-spin text-[#FF3621]" />
+                                    : <Zap className="h-3 w-3 text-green-600" />
+                                  }
+                                </div>
+                                <span className={`text-xs ${spinning ? 'text-[#0B2026] font-medium' : 'text-muted-foreground line-through'}`}>
+                                  {agentLabel(name)}
+                                </span>
+                              </div>
+                            );
+                          })
+                        )}
                         {cleanContent(m.content) && <div className="border-t border-black/10 pt-2" />}
                       </div>
                     )}
+
+                    {/* ── Message content ── */}
                     <div className="whitespace-pre-wrap leading-relaxed">
                       {(m.content ? cleanContent(m.content) : '') || (isPendingBubble && isStreaming ? (
                         <span className="flex items-center gap-1 text-muted-foreground">
