@@ -128,21 +128,18 @@ function DecisionRow({ entry }: { entry: DecisionLogEntry }) {
           <OutcomeBadge outcome={entry.outcome} />
         </td>
 
-        {/* Confidence */}
+        {/* Trust Score */}
         <td className="hidden px-4 py-3 sm:table-cell">
-          {entry.confidence != null ? (
-            <div className="flex items-center gap-2">
-              <div className="h-1.5 w-20 rounded-full bg-border overflow-hidden">
-                <div
-                  className="h-full rounded-full bg-[#FF3621]"
-                  style={{ width: `${Math.round(Number(entry.confidence) * 100)}%` }}
-                />
-              </div>
-              <span className="text-xs text-muted-foreground tabular-nums">
-                {Math.round(Number(entry.confidence) * 100)}%
+          {entry.agent_scores && entry.agent_scores.length > 0 ? (() => {
+            const total = entry.agent_scores.reduce((s, a) => s + a.score, 0);
+            const label = total >= 85 ? 'Excellent' : total >= 65 ? 'Good' : total >= 45 ? 'Moderate' : total >= 25 ? 'Weak' : 'Poor';
+            const color = total >= 65 ? 'text-green-700' : total >= 45 ? 'text-amber-600' : total >= 25 ? 'text-orange-600' : 'text-red-600';
+            return (
+              <span className={`text-xs font-semibold tabular-nums ${color}`}>
+                {total}/100 — {label}
               </span>
-            </div>
-          ) : (
+            );
+          })() : (
             <span className="text-xs text-muted-foreground">—</span>
           )}
         </td>
@@ -227,16 +224,17 @@ function DecisionRow({ entry }: { entry: DecisionLogEntry }) {
                   <span className="text-xs font-semibold text-[#0B2026]">Agent trust scores</span>
                   <div className="mt-2 space-y-2">
                     {entry.agent_scores.map((s) => {
-                      const color = s.score >= 80 ? 'bg-green-500' : s.score >= 60 ? 'bg-amber-400' : 'bg-red-500';
-                      const textColor = s.score >= 80 ? 'text-green-700' : s.score >= 60 ? 'text-amber-600' : 'text-red-600';
+                      const pct = (s.score / 20) * 100;
+                      const color = s.score >= 17 ? 'bg-green-500' : s.score >= 13 ? 'bg-green-400' : s.score >= 9 ? 'bg-amber-400' : s.score >= 5 ? 'bg-orange-400' : 'bg-red-500';
+                      const textColor = s.score >= 13 ? 'text-green-700' : s.score >= 9 ? 'text-amber-600' : s.score >= 5 ? 'text-orange-600' : 'text-red-600';
                       return (
                         <div key={s.agent}>
                           <div className="flex items-center gap-2 mb-0.5">
                             <span className="text-[11px] font-medium text-[#0B2026] w-36 truncate">{s.agent}</span>
                             <div className="flex-1 h-1.5 rounded-full bg-muted overflow-hidden">
-                              <div className={`h-full rounded-full ${color}`} style={{ width: `${s.score}%` }} />
+                              <div className={`h-full rounded-full ${color}`} style={{ width: `${pct}%` }} />
                             </div>
-                            <span className={`text-[10px] font-semibold tabular-nums w-7 text-right ${textColor}`}>{s.score}</span>
+                            <span className={`text-[10px] font-semibold tabular-nums w-10 text-right ${textColor}`}>{s.score}/20</span>
                           </div>
                           {s.rationale && (
                             <p className="text-[10px] text-muted-foreground leading-snug pl-[9.5rem]">{s.rationale}</p>
@@ -290,7 +288,7 @@ export function DecisionsPage() {
 
   // Search + sort state
   const [search, setSearch] = useState('');
-  const [confidenceSort, setConfidenceSort] = useState<'none' | 'asc' | 'desc'>('none');
+  const [scoreSort, setScoreSort] = useState<'none' | 'asc' | 'desc'>('none');
 
   function load() {
     setLoading(true);
@@ -322,20 +320,20 @@ export function DecisionsPage() {
       );
     }
 
-    // Sort by confidence
-    if (confidenceSort !== 'none') {
+    // Sort by trust score
+    if (scoreSort !== 'none') {
       result = [...result].sort((a, b) => {
-        const ca = a.confidence ?? -1;
-        const cb = b.confidence ?? -1;
-        return confidenceSort === 'asc' ? ca - cb : cb - ca;
+        const ta = a.agent_scores ? a.agent_scores.reduce((s, x) => s + x.score, 0) : -1;
+        const tb = b.agent_scores ? b.agent_scores.reduce((s, x) => s + x.score, 0) : -1;
+        return scoreSort === 'asc' ? ta - tb : tb - ta;
       });
     }
 
     return result;
-  }, [entries, search, confidenceSort]);
+  }, [entries, search, scoreSort]);
 
-  function cycleConfidenceSort() {
-    setConfidenceSort((prev) =>
+  function cycleScoreSort() {
+    setScoreSort((prev) =>
       prev === 'none' ? 'desc' : prev === 'desc' ? 'asc' : 'none'
     );
   }
@@ -412,17 +410,17 @@ export function DecisionsPage() {
               <tr>
                 <th className="px-4 py-2.5 text-left text-xs font-semibold text-[#0B2026]">Facility</th>
                 <th className="px-4 py-2.5 text-left text-xs font-semibold text-[#0B2026]">Outcome</th>
-                {/* Clickable confidence header */}
+                {/* Clickable trust score header */}
                 <th className="hidden px-4 py-2.5 text-left text-xs font-semibold text-[#0B2026] sm:table-cell">
                   <button
-                    onClick={cycleConfidenceSort}
+                    onClick={cycleScoreSort}
                     className="inline-flex items-center gap-1 hover:text-[#FF3621] transition-colors"
-                    title="Sort by confidence"
+                    title="Sort by trust score"
                   >
-                    Confidence
-                    {confidenceSort === 'none' && <ChevronsUpDown className="h-3 w-3 text-muted-foreground" />}
-                    {confidenceSort === 'desc' && <ChevronDown className="h-3 w-3 text-[#FF3621]" />}
-                    {confidenceSort === 'asc'  && <ChevronUp   className="h-3 w-3 text-[#FF3621]" />}
+                    Trust Score
+                    {scoreSort === 'none' && <ChevronsUpDown className="h-3 w-3 text-muted-foreground" />}
+                    {scoreSort === 'desc' && <ChevronDown className="h-3 w-3 text-[#FF3621]" />}
+                    {scoreSort === 'asc'  && <ChevronUp   className="h-3 w-3 text-[#FF3621]" />}
                   </button>
                 </th>
                 <th className="hidden px-4 py-2.5 text-left text-xs font-semibold text-[#0B2026] md:table-cell">Agents</th>

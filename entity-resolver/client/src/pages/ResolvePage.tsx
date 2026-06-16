@@ -278,9 +278,20 @@ export function FieldApprovalTable({
             'text-gray-600'
           }`}>{proposal.outcome}</span>
         </span>
-        <span className="text-xs text-muted-foreground tabular-nums">
-          Confidence: {Math.round(proposal.confidence * 100)}%
-        </span>
+        {proposal.agent_scores && proposal.agent_scores.length > 0 ? (() => {
+          const total = proposal.agent_scores.reduce((s, a) => s + a.score, 0);
+          const label = total >= 85 ? 'Excellent' : total >= 65 ? 'Good' : total >= 45 ? 'Moderate' : total >= 25 ? 'Weak' : 'Poor';
+          const color = total >= 65 ? 'text-green-700' : total >= 45 ? 'text-amber-600' : total >= 25 ? 'text-orange-600' : 'text-red-600';
+          return (
+            <span className={`text-xs font-semibold tabular-nums ${color}`}>
+              {total}/100 — {label}
+            </span>
+          );
+        })() : (
+          <span className="text-xs text-muted-foreground tabular-nums">
+            Confidence: {Math.round(proposal.confidence * 100)}%
+          </span>
+        )}
       </div>
 
       {/* Reasoning */}
@@ -867,11 +878,6 @@ export function ResolvePage() {
             <div className="rounded-md border border-dashed border-border bg-white py-10 text-center text-sm text-muted-foreground">
               No records found for this cluster.
             </div>
-          )}
-
-          {/* Trust Score Panel — shown once scores are frozen, stable across re-renders */}
-          {frozenScores && frozenScores.length > 0 && (
-            <TrustScorePanel scores={frozenScores} />
           )}
 
           {records.map((rec, i) => (
