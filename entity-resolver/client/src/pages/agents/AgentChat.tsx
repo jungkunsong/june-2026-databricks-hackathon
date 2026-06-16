@@ -199,7 +199,26 @@ export function AgentChat({ agentName, initialMessage, placeholder, started = fa
     ]);
     setPendingAssistantId(assistantId);
 
-    void sendRef.current!(msg).then(() => { sendDoneRef.current = true; });
+    // Retry with exponential backoff on 429 rate-limit errors (up to 3 attempts)
+    const trySend = async (attemptsLeft: number): Promise<void> => {
+      try {
+        await sendRef.current!(msg);
+        sendDoneRef.current = true;
+      } catch (err) {
+        const is429 =
+          String(err).includes('429') ||
+          String(err).toLowerCase().includes('rate limit') ||
+          String(err).toLowerCase().includes('too many requests');
+        if (is429 && attemptsLeft > 1) {
+          const delay = (4 - attemptsLeft) * 3000; // 3s, 6s
+          await new Promise((r) => setTimeout(r, delay));
+          await trySend(attemptsLeft - 1);
+        } else {
+          throw err;
+        }
+      }
+    };
+    void trySend(3);
   // Only re-evaluate when the things that gate the send change
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [started, activeAgent, initialMessage]);

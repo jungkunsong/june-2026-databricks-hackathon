@@ -352,7 +352,7 @@ export function BulkReviewPage() {
     void startCluster(0, items);
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Advance to next pending cluster
+  // Advance to next pending cluster — 2s cooldown to avoid 429 rate limits
   const advanceToNext = useCallback((currentItems: BulkItem[]) => {
     const nextIndex = currentItems.findIndex((it, i) => i > activeIndex && it.status === 'pending');
     if (nextIndex === -1) {
@@ -360,7 +360,10 @@ export function BulkReviewPage() {
       return;
     }
     setActiveIndex(nextIndex);
-    void startCluster(nextIndex, currentItems);
+    // Brief pause before firing the next agent to avoid back-to-back 429s
+    setTimeout(() => {
+      void startCluster(nextIndex, currentItems);
+    }, 2000);
   }, [activeIndex, startCluster]);
 
   // Helpers to get current task
