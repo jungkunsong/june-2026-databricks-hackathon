@@ -1,5 +1,6 @@
 import { createAgent, tool } from '@databricks/appkit/beta';
 import { z } from 'zod';
+import { emitAgentStart, emitAgentDone, setActiveRunId } from '../progress-store';
 
 // Fields that are purely internal / noisy — strip before sending to supervisor
 const STRIP_FIELDS = new Set([
@@ -70,6 +71,9 @@ export const evidenceFetcherAgent = createAgent({
       }),
       annotations: { effect: 'read' },
       execute: async ({ row_id }) => {
+        const runId = String(row_id);
+        setActiveRunId(runId);
+        emitAgentStart(runId, 'evidence-fetcher');
         try {
           const res = await fetch(`http://localhost:${process.env.DATABRICKS_APP_PORT ?? 8000}/api/facilities/${row_id}`);
           if (!res.ok) {
@@ -79,6 +83,8 @@ export const evidenceFetcherAgent = createAgent({
           return { row_id, record: cleanRecord(record) };
         } catch (err) {
           return { error: String(err), row_id };
+        } finally {
+          emitAgentDone(runId, 'evidence-fetcher');
         }
       },
     }),

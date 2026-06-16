@@ -1,5 +1,6 @@
 import { createAgent, tool } from '@databricks/appkit/beta';
 import { z } from 'zod';
+import { emitAgentStart, emitAgentDone, getActiveRunId } from '../progress-store';
 
 /**
  * Phone Number Validator agent.
@@ -29,6 +30,9 @@ export const phoneValidatorAgent = createAgent({
       }),
       annotations: { effect: 'read' },
       execute: ({ phone, facility_name, record_id }) => {
+        const runId = getActiveRunId();
+        if (runId) emitAgentStart(runId, 'phone-validator');
+        const result = (() => {
         // ── Null / empty guard ──────────────────────────────────────────────
         if (!phone || phone.trim() === '' || phone.trim().toLowerCase() === 'null') {
           return {
@@ -126,6 +130,9 @@ export const phoneValidatorAgent = createAgent({
           verdict: 'INVALID' as const,
           notes: `Unexpected subscriber prefix digit: ${prefix}.`,
         };
+        })();
+        if (runId) emitAgentDone(runId, 'phone-validator');
+        return result;
       },
     }),
   },

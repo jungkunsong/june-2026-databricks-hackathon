@@ -1,5 +1,6 @@
 import { createAgent, tool } from '@databricks/appkit/beta';
 import { z } from 'zod';
+import { emitAgentStart, emitAgentDone, getActiveRunId } from '../progress-store';
 
 /**
  * Website Validator agent.
@@ -34,6 +35,8 @@ export const websiteValidatorAgent = createAgent({
       }),
       annotations: { effect: 'read' },
       execute: async ({ url, facility_name, record_id }) => {
+        const runId = getActiveRunId();
+        if (runId) emitAgentStart(runId, 'website-validator');
         // Normalise: ensure the URL has a scheme
         const normalised = /^https?:\/\//i.test(url) ? url : `https://${url}`;
 
@@ -99,6 +102,7 @@ export const websiteValidatorAgent = createAgent({
           // URL parse failed — already UNREACHABLE
         }
 
+        if (runId) emitAgentDone(runId, 'website-validator');
         return {
           record_id,
           facility_name,

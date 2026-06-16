@@ -1,5 +1,6 @@
 import { createAgent, tool } from '@databricks/appkit/beta';
 import { z } from 'zod';
+import { emitAgentStart, emitAgentDone, getActiveRunId } from '../progress-store';
 
 /**
  * Controlled Vocabulary Validator agent.
@@ -131,6 +132,8 @@ export const controlledVocabularyValidatorAgent = createAgent({
               ? 'Warning'
               : 'Valid';
 
+        const runId = getActiveRunId();
+        if (runId) { emitAgentStart(runId, 'controlled-vocabulary-validator'); emitAgentDone(runId, 'controlled-vocabulary-validator'); }
         return {
           record_id,
           facility_name,

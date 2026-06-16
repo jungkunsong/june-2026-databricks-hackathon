@@ -1,5 +1,6 @@
 import { createAgent, tool } from '@databricks/appkit/beta';
 import { z } from 'zod';
+import { emitAgentStart, emitAgentDone, getActiveRunId } from '../progress-store';
 
 /**
  * Location Validator agent.
@@ -85,6 +86,8 @@ export const locationValidatorAgent = createAgent({
       }),
       annotations: { effect: 'read' },
       execute: async ({ postcode }) => {
+        const runId = getActiveRunId();
+        if (runId) emitAgentStart(runId, 'location-validator');
         const normalised = postcode.replace(/\D/g, '');
 
         if (normalised.length !== 6) {
@@ -391,7 +394,7 @@ export const locationValidatorAgent = createAgent({
           validationResult = 'MISMATCH';
         }
 
-        return {
+        const result = {
           record_id,
           facility_name,
           postcode,
@@ -409,6 +412,9 @@ export const locationValidatorAgent = createAgent({
                 ? `${distanceRounded} km from pincode centroid — minor discrepancy, check neighbouring area.`
                 : `${distanceRounded} km from pincode centroid — coordinates and postcode point to different locations.`,
         };
+        const runId = getActiveRunId();
+        if (runId) emitAgentDone(runId, 'location-validator');
+        return result;
       },
     }),
   },

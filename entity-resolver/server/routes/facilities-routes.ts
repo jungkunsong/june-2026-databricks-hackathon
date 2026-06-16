@@ -4,9 +4,21 @@
  * copied there once by the sync notebook.
  */
 import type { LakebaseHandle, ServerHandle } from '../plugin-handles';
+import { subscribe } from '../progress-store';
 
 export function setupFacilitiesRoutes(lb: LakebaseHandle, srv: ServerHandle) {
   srv.extend((app) => {
+
+    // GET /api/progress/:runId — SSE stream of agent progress steps for a run.
+    // runId is the row_id string from the initial message.
+    app.get('/api/progress/:runId', (req, res) => {
+      res.setHeader('Content-Type', 'text/event-stream');
+      res.setHeader('Cache-Control', 'no-cache');
+      res.setHeader('Connection', 'keep-alive');
+      res.setHeader('X-Accel-Buffering', 'no');
+      res.flushHeaders();
+      subscribe(req.params.runId, res);
+    });
 
     // GET /api/facilities/clusters/count — total distinct cluster count (with optional search)
     app.get('/api/facilities/clusters/count', async (req, res) => {

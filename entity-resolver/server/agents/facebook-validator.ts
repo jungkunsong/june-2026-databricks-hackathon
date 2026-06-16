@@ -1,5 +1,6 @@
 import { createAgent, tool } from '@databricks/appkit/beta';
 import { z } from 'zod';
+import { emitAgentStart, emitAgentDone, getActiveRunId } from '../progress-store';
 
 /**
  * Facebook Page Validator agent.
@@ -37,6 +38,8 @@ export const facebookValidatorAgent = createAgent({
       }),
       annotations: { effect: 'read' },
       execute: async ({ url, facility_name, record_id }) => {
+        const runId = getActiveRunId();
+        if (runId) emitAgentStart(runId, 'facebook-validator');
         // Lazy-import playwright so the module only loads when the tool is
         // actually invoked (keeps startup time fast for non-FB clusters).
         let chromium: import('playwright').BrowserType;
@@ -104,6 +107,7 @@ export const facebookValidatorAgent = createAgent({
           await browser?.close();
         }
 
+        if (runId) emitAgentDone(runId, 'facebook-validator');
         return {
           record_id,
           facility_name,

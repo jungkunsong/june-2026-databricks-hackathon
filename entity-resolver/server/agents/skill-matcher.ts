@@ -1,5 +1,6 @@
 import { createAgent, tool } from '@databricks/appkit/beta';
 import { z } from 'zod';
+import { emitAgentStart, emitAgentDone, getActiveRunId } from '../progress-store';
 
 /**
  * Skill Matcher agent.
@@ -149,6 +150,8 @@ export const skillMatcherAgent = createAgent({
       }),
       annotations: { effect: 'read' },
       execute: async ({ url, facility_name, equipment_terms, capability_terms }) => {
+        const runId = getActiveRunId();
+        if (runId) emitAgentStart(runId, 'skill-matcher');
         // Normalise URL
         let normalised = url.trim();
         if (!/^https?:\/\//i.test(normalised)) normalised = `https://${normalised}`;
@@ -232,6 +235,9 @@ export const skillMatcherAgent = createAgent({
             excerpts: {},
             page_text_length: 0,
           };
+        } finally {
+          const runId = getActiveRunId();
+          if (runId) emitAgentDone(runId, 'skill-matcher');
         }
       },
     }),

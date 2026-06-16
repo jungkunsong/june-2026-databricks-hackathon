@@ -1,5 +1,6 @@
 import { createAgent, tool } from '@databricks/appkit/beta';
 import { z } from 'zod';
+import { emitAgentStart, emitAgentDone, getActiveRunId } from '../progress-store';
 
 /**
  * Source Authority Validator agent.
@@ -246,6 +247,8 @@ export const sourceAuthorityValidatorAgent = createAgent({
                     ? 'Social media only'
                     : 'Unknown / no credible source';
 
+        const runId = getActiveRunId();
+        if (runId) { emitAgentStart(runId, 'source-authority-validator'); emitAgentDone(runId, 'source-authority-validator'); }
         return {
           record_id,
           facility_name,

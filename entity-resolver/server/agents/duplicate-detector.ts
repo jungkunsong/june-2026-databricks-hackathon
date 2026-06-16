@@ -1,5 +1,6 @@
 import { createAgent, tool } from '@databricks/appkit/beta';
 import { z } from 'zod';
+import { emitAgentStart, emitAgentDone, getActiveRunId } from '../progress-store';
 
 /**
  * Duplicate Detector agent.
@@ -52,6 +53,8 @@ export const duplicateDetectorAgent = createAgent({
       }),
       annotations: { effect: 'read' },
       execute: async ({ row_id }) => {
+        const runId = getActiveRunId() ?? String(row_id);
+        emitAgentStart(runId, 'duplicate-detector');
         try {
           const base = `http://localhost:${process.env.DATABRICKS_APP_PORT ?? 8000}`;
           const res = await fetch(`${base}/api/facilities/duplicate-candidates/${row_id}`);
@@ -139,6 +142,8 @@ export const duplicateDetectorAgent = createAgent({
           };
         } catch (err) {
           return { error: String(err), row_id };
+        } finally {
+          emitAgentDone(runId, 'duplicate-detector');
         }
       },
     }),

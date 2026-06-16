@@ -29,8 +29,6 @@ interface AgentChatProps {
 
 // ── Agent activity feed ───────────────────────────────────────────────────────
 
-// Keys match the bare agent names used in PROMOTION_PROPOSAL agent_scores
-// (e.g. "evidence-fetcher", not "agent-evidence-fetcher")
 const AGENT_LABELS: Record<string, string> = {
   'evidence-fetcher':                'Fetching raw record…',
   'website-validator':               'Checking website…',
@@ -45,60 +43,21 @@ const AGENT_LABELS: Record<string, string> = {
   'controlled-vocabulary-validator': 'Validating controlled vocabulary…',
 };
 
-// Canonical agent order — used to sort the feed consistently
-const AGENT_ORDER = [
-  'evidence-fetcher',
-  'website-validator',
-  'phone-validator',
-  'location-validator',
-  'facebook-validator',
-  'similarity-scorer',
-  'duplicate-detector',
-  'context-validator',
-  'skill-matcher',
-  'source-authority-validator',
-  'controlled-vocabulary-validator',
-];
-
-// ms between each agent row appearing during the playback animation
 const PLAYBACK_STEP_MS = 400;
 
 function agentLabel(name: string): string {
   return AGENT_LABELS[name] ?? `Calling ${name.replace(/-/g, ' ')}…`;
 }
 
-/**
- * Extract agent names from a PROMOTION_PROPOSAL block embedded in content.
- * The supervisor always emits:
- *   PROMOTION_PROPOSAL: { ..., "agent_scores": [{"agent":"evidence-fetcher",...}, ...] }
- * Returns names sorted by AGENT_ORDER, or [] if not found yet.
- */
-function extractAgentsFromContent(raw: string): string[] {
-  const match = raw.match(/PROMOTION_PROPOSAL:\s*(\{[\s\S]*\})/);
-  if (!match) return [];
-  try {
-    const proposal = JSON.parse(match[1]) as { agent_scores?: { agent: string }[] };
-    const scores = proposal.agent_scores;
-    if (!Array.isArray(scores)) return [];
-    const names = scores.map((s) => s.agent).filter(Boolean);
-    // Sort by canonical order; unknown agents go to the end
-    return names.sort((a, b) => {
-      const ai = AGENT_ORDER.indexOf(a);
-      const bi = AGENT_ORDER.indexOf(b);
-      if (ai === -1 && bi === -1) return 0;
-      if (ai === -1) return 1;
-      if (bi === -1) return -1;
-      return ai - bi;
-    });
-  } catch {
-    return [];
-  }
+/** Extract row_id from the initial message, e.g. "row_id: 12345" */
+function extractRowId(msg: string): string | null {
+  const m = msg.match(/row_id[:\s]+(\d+)/i);
+  return m ? m[1] : null;
 }
 
 // ── Content cleaner ───────────────────────────────────────────────────────────
 
 function cleanContent(raw: string): string {
-  // Strip the status line emitted to break proxy buffering, and the proposal block
   let s = raw
     .replace(/^Verifying record…\s*/i, '')
     .replace(/PROMOTION_PROPOSAL:[\s\S]*$/, '')
@@ -147,18 +106,16 @@ export function AgentChat({ agentName, initialMessage, placeholder, started = fa
   const sendDoneRef = useRef(false);
 
   // ── Activity feed state ───────────────────────────────────────────────────
-  // isWaiting: true from the moment send() fires until playback animation finishes.
-  //   The proxy buffers all SSE until the run completes, so isStreaming stays false
-  //   during the entire agent run. isWaiting lets us show the feed regardless.
-  // allAgents: ordered list parsed from PROMOTION_PROPOSAL.agent_scores in content
-  // visibleCount: how many rows are currently shown (animated up one at a time)
   const [isWaiting, setIsWaiting] = useState(false);
+  // agentSteps: live steps arriving from the SSE progress stream
+  const [agentSteps, setAgentSteps] = useState<{ agent: string; status: 'running' | 'done' }[]>([]);
+  // allAgents / visibleCount: playback animation (used as fallback from PROMOTION_PROPOSAL)
   const [allAgents, setAllAgents] = useState<string[]>([]);
   const [visibleCount, setVisibleCount] = useState(0);
-  // playback timer ref so we can clear it on reset
   const playbackTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  // true while send() is in-flight (proxy is buffering); set false when send() resolves
   const sendInFlightRef = useRef(false);
+  // SSE subscription
+  const sseRef = useRef<EventSource | null>(null);
 
   useEffect(() => {
     onMessagesChange?.(messages.map((m) => ({ role: m.role, content: m.content })));
@@ -175,19 +132,46 @@ export function AgentChat({ agentName, initialMessage, placeholder, started = fa
   sendRef.current = send;
   resetRef.current = reset;
 
-  // ── Extract agent names from content once PROMOTION_PROPOSAL appears ──────
-  // The events array is never populated by the SDK (proxy buffers everything),
-  // so we parse agent_scores out of the PROMOTION_PROPOSAL block in content instead.
-  useEffect(() => {
-    if (allAgents.length > 0) return; // already extracted
-    const agents = extractAgentsFromContent(content);
-    if (agents.length > 0) setAllAgents(agents);
-  }, [content, allAgents.length]);
+  // ── Subscribe to SSE progress stream for a given row_id ──────────────────
+  const subscribeToProgress = (rowId: string) => {
+    if (sseRef.current) { sseRef.current.close(); sseRef.current = null; }
+    const es = new EventSource(`/api/progress/${rowId}`);
+    sseRef.current = es;
+    es.onmessage = (e) => {
+      try {
+        const step = JSON.parse(e.data) as { agent: string; status: 'running' | 'done' };
+        setAgentSteps((prev) => {
+          const idx = prev.findIndex((s) => s.agent === step.agent);
+          if (idx >= 0) {
+            // Update existing step
+            const next = [...prev];
+            next[idx] = step;
+            return next;
+          }
+          return [...prev, step];
+        });
+      } catch { /* ignore malformed */ }
+    };
+    es.onerror = () => { es.close(); sseRef.current = null; };
+  };
 
-  // ── Playback animation: step visibleCount up one at a time ────────────────
+  // ── Fallback: parse PROMOTION_PROPOSAL from content if SSE yielded nothing
+  useEffect(() => {
+    if (agentSteps.length > 0) return; // SSE is working — no need for fallback
+    if (allAgents.length > 0) return;
+    const match = content.match(/PROMOTION_PROPOSAL:\s*(\{[\s\S]*\})/);
+    if (!match) return;
+    try {
+      const proposal = JSON.parse(match[1]) as { agent_scores?: { agent: string }[] };
+      const names = (proposal.agent_scores ?? []).map((s) => s.agent).filter(Boolean);
+      if (names.length > 0) setAllAgents(names);
+    } catch { /* ignore */ }
+  }, [content, agentSteps.length, allAgents.length]);
+
+  // ── Playback animation for fallback path ─────────────────────────────────
   useEffect(() => {
     if (allAgents.length === 0) return;
-    if (visibleCount >= allAgents.length) return; // done — dedicated effect below handles clearing
+    if (visibleCount >= allAgents.length) return;
     if (playbackTimerRef.current) clearTimeout(playbackTimerRef.current);
     playbackTimerRef.current = setTimeout(() => {
       setVisibleCount((c) => Math.min(c + 1, allAgents.length));
@@ -195,19 +179,22 @@ export function AgentChat({ agentName, initialMessage, placeholder, started = fa
     return () => { if (playbackTimerRef.current) clearTimeout(playbackTimerRef.current); };
   }, [allAgents, visibleCount]);
 
-  // ── Clear isWaiting once send resolves, streaming ends, and playback is done
+  // ── Clear isWaiting once send resolves, streaming ends, and animation done
   useEffect(() => {
-    if (sendInFlightRef.current) return;   // send still in-flight — never clear early
-    if (isStreaming) return;               // streaming still active
-    if (allAgents.length > 0 && visibleCount < allAgents.length) return; // playback not done
+    if (sendInFlightRef.current) return;
+    if (isStreaming) return;
+    // SSE path: wait for all steps to be 'done' or SSE closed
+    if (agentSteps.length > 0 && agentSteps.some((s) => s.status === 'running')) return;
+    // Fallback path: wait for playback
+    if (allAgents.length > 0 && visibleCount < allAgents.length) return;
     setIsWaiting(false);
-  }, [isStreaming, visibleCount, allAgents.length]);
+  }, [isStreaming, agentSteps, visibleCount, allAgents.length]);
 
   useEffect(() => { onStreamingChange?.(isStreaming); }, [isStreaming, onStreamingChange]);
 
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight });
-  }, [messages, content, visibleCount]);
+  }, [messages, content, agentSteps, visibleCount]);
 
   // Update the in-progress assistant bubble
   useEffect(() => {
@@ -220,12 +207,18 @@ export function AgentChat({ agentName, initialMessage, placeholder, started = fa
   }, [content, pendingAssistantId]);
 
   // Helper to reset all feed state between runs
-  const resetFeed = () => {
+  const resetFeed = (rowId?: string | null) => {
     if (playbackTimerRef.current) clearTimeout(playbackTimerRef.current);
+    if (sseRef.current) { sseRef.current.close(); sseRef.current = null; }
     setIsWaiting(true);
+    setAgentSteps([]);
     setAllAgents([]);
     setVisibleCount(0);
+    if (rowId) subscribeToProgress(rowId);
   };
+
+  // Cleanup SSE on unmount
+  useEffect(() => () => { sseRef.current?.close(); }, []);
 
   useEffect(() => {
     if (!started || !activeAgent || seededRef.current) return;
@@ -233,8 +226,9 @@ export function AgentChat({ agentName, initialMessage, placeholder, started = fa
     if (!msg) return;
     seededRef.current = true;
     const assistantId = `a-seed-${Date.now()}`;
+    const rowId = extractRowId(msg);
     resetRef.current?.();
-    resetFeed();
+    resetFeed(rowId);
     setMessages([
       { id: `u-seed-${Date.now()}`, role: 'user', content: msg },
       { id: assistantId, role: 'assistant', content: '' },
@@ -256,6 +250,7 @@ export function AgentChat({ agentName, initialMessage, placeholder, started = fa
       }
     };
     void trySend(3);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [started, activeAgent, initialMessage]);
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -264,7 +259,8 @@ export function AgentChat({ agentName, initialMessage, placeholder, started = fa
     if (!message || isStreaming || !activeAgent) return;
     setInput('');
     const assistantId = `a-${Date.now()}`;
-    resetFeed();
+    const rowId = extractRowId(message);
+    resetFeed(rowId);
     setMessages((prev) => [
       ...prev,
       { id: `u-${Date.now()}`, role: 'user', content: message },
@@ -280,15 +276,22 @@ export function AgentChat({ agentName, initialMessage, placeholder, started = fa
     sendDoneRef.current = true;
   };
 
-  // Feed visibility: show while waiting for results OR while playback is animating
-  const feedRows = allAgents.slice(0, visibleCount);
-  const playbackInProgress = visibleCount < allAgents.length;
-  // Spinner on the last row while: no agents yet (still waiting) OR mid-playback
-  const lastRowSpinning = isWaiting && (allAgents.length === 0 || playbackInProgress);
+  // ── Render feed rows ──────────────────────────────────────────────────────
+  // SSE path: show live steps as they arrive
+  // Fallback path: show playback animation from PROMOTION_PROPOSAL
+  const usingSse = agentSteps.length > 0;
+  const feedRows: { agent: string; status: 'running' | 'done' | 'pending' }[] = usingSse
+    ? agentSteps
+    : allAgents.slice(0, visibleCount).map((a, i) => ({
+        agent: a,
+        status: i < visibleCount - 1 ? 'done' : 'running',
+      }));
+  const playbackInProgress = !usingSse && visibleCount < allAgents.length;
+  const showFeed = isWaiting || playbackInProgress || (usingSse && agentSteps.some((s) => s.status === 'running'));
+
   return (
     <div className="flex h-full flex-col">
       <div ref={scrollRef} className="flex-1 overflow-y-auto p-4">
-        {/* Empty state */}
         {messages.length === 0 && (
           <div className="flex flex-col items-center justify-center h-full gap-2 text-center">
             <Bot className="h-8 w-8 text-muted-foreground/40" />
@@ -311,11 +314,10 @@ export function AgentChat({ agentName, initialMessage, placeholder, started = fa
                   </div>
                   <div className={`max-w-[85%] rounded-lg px-3 py-2 text-sm ${isUser ? 'bg-[#FF3621]/10 text-[#0B2026]' : 'bg-[#EEEDE9] text-[#0B2026]'}`}>
 
-                    {/* ── Activity feed — shown while waiting or animating ── */}
-                    {isPendingBubble && (isWaiting || playbackInProgress) && (
+                    {/* ── Activity feed ── */}
+                    {isPendingBubble && (isWaiting || showFeed) && (
                       <div className="mb-2 space-y-1.5">
                         {feedRows.length === 0 ? (
-                          // No agents yet — proxy is still buffering, show pulsing placeholder
                           <div className="flex items-center gap-2">
                             <div className="flex h-5 w-5 flex-shrink-0 items-center justify-center rounded-full bg-white/60">
                               <Loader2 className="h-3 w-3 animate-spin text-[#FF3621]" />
@@ -323,23 +325,19 @@ export function AgentChat({ agentName, initialMessage, placeholder, started = fa
                             <span className="text-xs text-muted-foreground animate-pulse">Contacting agents…</span>
                           </div>
                         ) : (
-                          feedRows.map((name, idx) => {
-                            const isLatestRow = idx === feedRows.length - 1;
-                            const spinning = isLatestRow && lastRowSpinning;
-                            return (
-                              <div key={name} className="flex items-center gap-2">
-                                <div className="flex h-5 w-5 flex-shrink-0 items-center justify-center rounded-full bg-white/60">
-                                  {spinning
-                                    ? <Loader2 className="h-3 w-3 animate-spin text-[#FF3621]" />
-                                    : <Zap className="h-3 w-3 text-green-600" />
-                                  }
-                                </div>
-                                <span className={`text-xs ${spinning ? 'text-[#0B2026] font-medium' : 'text-muted-foreground line-through'}`}>
-                                  {agentLabel(name)}
-                                </span>
+                          feedRows.map(({ agent, status }) => (
+                            <div key={agent} className="flex items-center gap-2">
+                              <div className="flex h-5 w-5 flex-shrink-0 items-center justify-center rounded-full bg-white/60">
+                                {status === 'running'
+                                  ? <Loader2 className="h-3 w-3 animate-spin text-[#FF3621]" />
+                                  : <Zap className="h-3 w-3 text-green-600" />
+                                }
                               </div>
-                            );
-                          })
+                              <span className={`text-xs ${status === 'running' ? 'text-[#0B2026] font-medium' : 'text-muted-foreground line-through'}`}>
+                                {agentLabel(agent)}
+                              </span>
+                            </div>
+                          ))
                         )}
                         {cleanContent(m.content) && <div className="border-t border-black/10 pt-2" />}
                       </div>

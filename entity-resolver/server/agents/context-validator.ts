@@ -1,5 +1,6 @@
 import { createAgent, tool } from '@databricks/appkit/beta';
 import { z } from 'zod';
+import { emitAgentStart, emitAgentDone, getActiveRunId } from '../progress-store';
 
 /**
  * Context Validator agent.
@@ -240,6 +241,8 @@ export const contextValidatorAgent = createAgent({
           flags.push('No consistency issues detected.');
         }
 
+        const runId = getActiveRunId();
+        if (runId) { emitAgentStart(runId, 'context-validator'); emitAgentDone(runId, 'context-validator'); }
         return {
           agent: 'context-validator',
           completeness_score: completeness,
