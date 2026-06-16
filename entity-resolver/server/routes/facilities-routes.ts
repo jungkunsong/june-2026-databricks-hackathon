@@ -158,7 +158,7 @@ export function setupFacilitiesRoutes(lb: LakebaseHandle, srv: ServerHandle) {
             "yearEstablished", "acceptsVolunteers"
           FROM virtue_foundation_dataset.facilities_raw
           WHERE cluster_id = $1
-          ORDER BY source_types ASC
+          ORDER BY row_id ASC
         `, [req.params.clusterId]);
         res.json(result.rows);
       } catch (err) {

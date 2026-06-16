@@ -225,71 +225,86 @@ export function setupResolutionRoutes(lb: LakebaseHandle, srv: ServerHandle) {
 
         // Set a per-query statement timeout so a stalled Lakebase connection
         // doesn't hang the request indefinitely (causes 502 at the proxy).
-        await lb.query(`SET statement_timeout = '20s'`);
-
-        // Look up cluster_id from the task row — the live facilities_resolved table
-        // has a NOT NULL constraint on cluster_id so we must supply it.
-        const taskRow = await lb.query<{ cluster_id: string }>(
-          'SELECT cluster_id FROM app.resolution_tasks WHERE id = $1',
-          [taskIdNum],
-        );
-        const cluster_id = taskRow.rows[0]?.cluster_id ?? null;
-
-        // ── 1. Write facilities_resolved ──────────────────────────────────
-        const resolvedResult = await lb.query(`
-          INSERT INTO app.facilities_resolved (
-            task_id, raw_row_id, cluster_id,
-            unique_id, name, organization_type, "facilityTypeId",
-            description, phone_numbers, email, websites, "facebookLink",
-            address_line1, address_city, "address_stateOrRegion", "address_zipOrPostcode",
-            address_country, latitude, longitude,
-            specialties, procedure, equipment, capability, capacity, "numberDoctors",
-            outcome, resolution_outcome, confidence, resolved_by
-          ) VALUES (
-            $1, $2, $3,
-            $4, $5, $6, $7,
-            $8, $9, $10, $11, $12,
-            $13, $14, $15, $16,
-            $17, $18, $19,
-            $20, $21, $22, $23, $24, $25,
-            $26, $26, $27, 'supervisor_agent'
+        // ── Single writable CTE — all three writes are truly atomic on one connection.
+        // SET LOCAL statement_timeout applies to the whole transaction.
+        const result = await lb.query<{ resolved_id: number }>(`
+          WITH
+          task_row AS (
+            SELECT cluster_id FROM app.resolution_tasks WHERE id = $1
+          ),
+          ins_resolved AS (
+            INSERT INTO app.facilities_resolved (
+              task_id, raw_row_id, cluster_id,
+              unique_id, name, organization_type, "facilityTypeId",
+              description, phone_numbers, email, websites, "facebookLink",
+              address_line1, address_city, "address_stateOrRegion", "address_zipOrPostcode",
+              address_country, latitude, longitude,
+              specialties, procedure, equipment, capability, capacity, "numberDoctors",
+              outcome, resolution_outcome, confidence, resolved_by
+            )
+            SELECT
+              $1, $2, (SELECT cluster_id FROM task_row),
+              $4, $5, $6, $7,
+              $8, $9, $10, $11, $12,
+              $13, $14, $15, $16,
+              $17, $18, $19,
+              $20, $21, $22, $23, $24, $25,
+              $26, $26, $27, 'supervisor_agent'
+            RETURNING id
+          ),
+          ins_log AS (
+            INSERT INTO app.decision_log (
+              task_id, resolved_id, raw_row_id, facility_name,
+              outcome, confidence, reasoning,
+              agents_consulted, verifications, human_notes, agent_scores
+            )
+            SELECT
+              $1, (SELECT id FROM ins_resolved), $2, $3,
+              $26, $27, $28,
+              $29::text[], $30::jsonb, $31, $32::jsonb
+          ),
+          upd_task AS (
+            UPDATE app.resolution_tasks
+            SET status = 'resolved', resolved_at = NOW(), updated_at = NOW()
+            WHERE id = $1
           )
-          RETURNING id
+          SELECT id AS resolved_id FROM ins_resolved
         `, [
-          taskIdNum, rawRowIdNum, cluster_id,
-          f.unique_id ?? null, f.name ?? facility_name ?? null, f.organization_type ?? null, f.facilityTypeId ?? null,
-          f.description ?? null, f.phone_numbers ?? null, f.email ?? null, f.websites ?? null, f.facebookLink ?? null,
-          f.address_line1 ?? null, f.address_city ?? null, f.address_stateOrRegion ?? null, f.address_zipOrPostcode ?? null,
-          f.address_country ?? null, f.latitude ?? null, f.longitude ?? null,
-          f.specialties ?? null, f.procedure ?? null, f.equipment ?? null, f.capability ?? null, f.capacity ?? null, f.numberDoctors ?? null,
-          outcome, confidenceNum,
+          taskIdNum,                                                              // $1  task_id
+          rawRowIdNum,                                                            // $2  raw_row_id
+          facility_name ?? null,                                                  // $3  facility_name (decision_log)
+          f.unique_id ?? null,                                                    // $4
+          f.name ?? facility_name ?? null,                                        // $5
+          f.organization_type ?? null,                                            // $6
+          f.facilityTypeId ?? null,                                               // $7
+          f.description ?? null,                                                  // $8
+          f.phone_numbers ?? null,                                                // $9
+          f.email ?? null,                                                        // $10
+          f.websites ?? null,                                                     // $11
+          f.facebookLink ?? null,                                                 // $12
+          f.address_line1 ?? null,                                                // $13
+          f.address_city ?? null,                                                 // $14
+          f.address_stateOrRegion ?? null,                                        // $15
+          f.address_zipOrPostcode ?? null,                                        // $16
+          f.address_country ?? null,                                              // $17
+          f.latitude ?? null,                                                     // $18
+          f.longitude ?? null,                                                    // $19
+          f.specialties ?? null,                                                  // $20
+          f.procedure ?? null,                                                    // $21
+          f.equipment ?? null,                                                    // $22
+          f.capability ?? null,                                                   // $23
+          f.capacity ?? null,                                                     // $24
+          f.numberDoctors ?? null,                                                // $25
+          outcome,                                                                // $26 (used twice: outcome + resolution_outcome)
+          confidenceNum,                                                          // $27
+          reasoning,                                                              // $28
+          agents_consulted && agents_consulted.length > 0 ? agents_consulted : null, // $29
+          verifications && verifications.length > 0 ? JSON.stringify(verifications) : null, // $30
+          human_notes ?? null,                                                    // $31
+          agent_scores && agent_scores.length > 0 ? JSON.stringify(agent_scores) : null,    // $32
         ]);
 
-        const resolved_id = (resolvedResult.rows[0] as { id: number }).id;
-
-        // ── 2. Write decision_log ─────────────────────────────────────────
-        await lb.query(`
-          INSERT INTO app.decision_log (
-            task_id, resolved_id, raw_row_id, facility_name,
-            outcome, confidence, reasoning,
-            agents_consulted, verifications, human_notes, agent_scores
-          ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8::text[], $9::jsonb, $10, $11::jsonb)
-        `, [
-          taskIdNum, resolved_id, rawRowIdNum, facility_name ?? null,
-          outcome, confidenceNum, reasoning,
-          agents_consulted && agents_consulted.length > 0 ? agents_consulted : null,
-          verifications && verifications.length > 0 ? JSON.stringify(verifications) : null,
-          human_notes ?? null,
-          agent_scores && agent_scores.length > 0 ? JSON.stringify(agent_scores) : null,
-        ]);
-
-        // ── 3. Mark task resolved ─────────────────────────────────────────
-        await lb.query(`
-          UPDATE app.resolution_tasks
-          SET status = 'resolved', resolved_at = NOW(), updated_at = NOW()
-          WHERE id = $1
-        `, [taskIdNum]);
-
+        const resolved_id = result.rows[0].resolved_id;
         res.status(201).json({ resolved_id, task_id: taskIdNum, outcome });
         clearTimeout(timeoutHandle);
       } catch (err) {
