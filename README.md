@@ -79,7 +79,7 @@ This project separates data quality concerns into two distinct layers:
 
 ### `known-data-quality-issues/` — Deterministic fixes in `master.sql`
 
-For issues that are **confirmed, unambiguous, and have a known fix**. These are hardcoded transformations applied once to produce `workspace.default.facilities` from the raw source table.
+For issues that are **confirmed, unambiguous, and have a known fix**. These are hardcoded transformations defined in `master.sql` and applied inline by `entity-resolver/notebooks/sync_facilities_to_lakebase.py` at sync time — reading directly from the raw source table and writing clean data to Lakebase in a single pass. No intermediate `workspace.default.facilities` table is required.
 
 **Criteria for inclusion:**
 - The root cause is fully understood
@@ -92,6 +92,14 @@ For issues that are **confirmed, unambiguous, and have a known fix**. These are 
 - Fully identical duplicate rows → deduplicated
 - Duplicate entries within JSON array columns → deduplicated
 - `"farmacy"` → `"pharmacy"` (known typo with an unambiguous correction)
+
+**Flow:**
+
+```
+raw source table
+  └─► master.sql (inline via spark.sql)
+        └─► virtue_foundation_dataset.facilities (Lakebase)
+```
 
 ---
 
