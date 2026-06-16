@@ -130,14 +130,12 @@ function AgentCard({
   icon: Icon,
   iconBg,
   name,
-  score,
   description,
   signals,
 }: {
   icon: typeof Globe;
   iconBg: string;
   name: string;
-  score: string;
   description: string;
   signals: string[];
 }) {
@@ -147,10 +145,7 @@ function AgentCard({
         <div className={`flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-lg ${iconBg}`}>
           <Icon className="h-4 w-4" />
         </div>
-        <div className="min-w-0">
-          <p className="text-xs font-semibold text-[#0B2026]">{name}</p>
-          <p className="text-[10px] text-muted-foreground font-mono">{score}</p>
-        </div>
+        <p className="text-xs font-semibold text-[#0B2026]">{name}</p>
       </div>
       <p className="text-[11px] text-muted-foreground leading-relaxed">{description}</p>
       <div className="flex flex-wrap gap-1">
@@ -203,7 +198,6 @@ export function DashboardPage() {
       icon: Globe,
       iconBg: 'bg-blue-50 text-blue-600',
       name: 'Website Validator',
-      score: 'page_presence_score · 0–20',
       description: 'Live HTTP check on officialWebsite. Scores domain authority, SSL, content relevance, and page recency.',
       signals: ['HTTP status', 'SSL cert', 'domain age', 'content match', 'recency'],
     },
@@ -211,7 +205,6 @@ export function DashboardPage() {
       icon: Phone,
       iconBg: 'bg-green-50 text-green-600',
       name: 'Phone Validator',
-      score: 'phone_score · 0–20',
       description: 'Validates Indian phone numbers via libphonenumber — checks format, STD code, and geographic plausibility against the facility\'s pincode.',
       signals: ['E.164 format', 'STD code', 'pincode match', 'mobile vs. landline'],
     },
@@ -219,7 +212,6 @@ export function DashboardPage() {
       icon: MapPin,
       iconBg: 'bg-amber-50 text-amber-600',
       name: 'Location Validator',
-      score: 'location_score · 0–20',
       description: 'Cross-references lat/lon, pincode, city, and state against a reference directory. Flags coordinate–address mismatches within 20 km.',
       signals: ['lat/lon', 'pincode', 'city', 'state', 'distance check'],
     },
@@ -227,7 +219,6 @@ export function DashboardPage() {
       icon: Facebook,
       iconBg: 'bg-indigo-50 text-indigo-600',
       name: 'Social Validator',
-      score: 'social_score · 0–20',
       description: 'Scores Facebook page presence (0–16) plus cross-field validation of the social handle against the facility name and address (0–4).',
       signals: ['page exists', 'follower count', 'activity', 'name match', 'address match'],
     },
@@ -235,7 +226,6 @@ export function DashboardPage() {
       icon: BookOpen,
       iconBg: 'bg-purple-50 text-purple-600',
       name: 'Context Validator',
-      score: 'context_score · 0–20',
       description: 'Evaluates six contextual fields — specialties, procedures, equipment, capabilities, description, and doctor/capacity counts — for internal coherence.',
       signals: ['specialties', 'procedures', 'equipment', 'capacity', 'description', 'doctor count'],
     },
@@ -243,7 +233,6 @@ export function DashboardPage() {
       icon: Star,
       iconBg: 'bg-rose-50 text-rose-600',
       name: 'Source Authority',
-      score: 'source_authority_score · 0–20',
       description: 'Tiers each URL in source_urls from authoritative (gov, WHO, Wikipedia) down to noise (real-estate portals). Score = MAX tier across all sources.',
       signals: ['gov/WHO', 'official site', 'Practo', 'JustDial', 'proptiger.com'],
     },
@@ -251,7 +240,6 @@ export function DashboardPage() {
       icon: Copy,
       iconBg: 'bg-teal-50 text-teal-600',
       name: 'Duplicate Detector',
-      score: 'merge_recommendation · definite/likely/possible/none',
       description: 'Finds near-duplicate records via shared phone, website, Facebook, or coordinates within 0.5 km. Also checks internal field coherence — name vs. facility type, address consistency, and coordinate plausibility.',
       signals: ['shared phone', 'shared website', 'shared facebook', 'coordinates', 'name fuzzy-match'],
     },
