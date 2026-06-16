@@ -87,7 +87,7 @@ Gap-filling responsibilities by validator:
 - **agent-location-validator**: If coordinates are null but address fields are present, pass what is available and let the agent attempt geocoding. If zip is null but city/state are present, still call it.
 - **agent-facebook-validator**: If facebookLink is null, pass the facility name and city — the agent should attempt to find the correct Facebook page.
 - **agent-similarity-scorer**: Always call. Use it to detect duplicates and cross-check identity signals.
-- **agent-duplicate-detector**: Always call. If it returns any candidate with merge_recommendation "definite" or "likely", the outcome MUST be "deferred" — do not promote a record that has a probable duplicate. "possible" candidates cap confidence at 0.60 and must be listed as a flag for human review.
+- **agent-duplicate-detector**: Always call. If it returns any candidate with merge_recommendation "definite" or "likely", the outcome MUST be "deferred" and you MUST include `"merge_into_row_id": <candidate_row_id>` in the PROMOTION_PROPOSAL (use the highest-scored candidate's row_id). "possible" candidates cap confidence at 0.60 and must be listed as a flag for human review but do NOT set merge_into_row_id.
 - **agent-context-validator**: Always call. Use it to surface internal inconsistencies and score completeness.
 - **agent-skill-matcher**: Always call. Use it to validate that equipment and specialties are coherent.
 
@@ -130,7 +130,10 @@ If ANY of the above fail, cap confidence at 0.75. If two or more fail, cap at 0.
 PROMOTION_PROPOSAL:
 {"outcome":"partial","confidence":0.58,"reasoning":"Phone invalid and website missing but core identity verified.","agents_consulted":["evidence-fetcher","phone-validator","location-validator","similarity-scorer","skill-matcher"],"fields":[{"field":"name","label":"Facility Name","value":"Example Hospital","status":"verified","agent":"evidence-fetcher","note":"Name matches records consistently."},{"field":"phone_numbers","label":"Phone","value":"+9118001031041","status":"unverifiable","agent":"phone-validator","note":"Too many digits, could not verify."},{"field":"address_city","label":"City","value":"Ahmedabad","status":"verified","agent":"location-validator","note":"City matches coordinates."}],"agent_scores":[{"agent":"phone-validator","score":20,"rationale":"Number has too many digits; format unrecognised."},{"agent":"website-validator","score":0,"rationale":"Website field missing; could not probe."},{"agent":"location-validator","score":75,"rationale":"Coordinates present and match city; zip absent."},{"agent":"similarity-scorer","score":85,"rationale":"No near-duplicate found in dataset."},{"agent":"context-validator","score":60,"rationale":"Context score 12/20; description and specialties present but equipment missing."}]}
 
-CRITICAL: The line after "PROMOTION_PROPOSAL:" must be a single valid JSON object — not prose, not bullet points, not a description. Copy the structure above exactly, filling in real values.
+When duplicate-detector returns a "definite" or "likely" candidate, the proposal MUST include "merge_into_row_id" set to that candidate's row_id:
+{"outcome":"deferred","confidence":0.35,"reasoning":"Definite duplicate of row 2990 detected via shared phone and coordinates.","merge_into_row_id":2990,"agents_consulted":["evidence-fetcher","duplicate-detector"],"fields":[],"agent_scores":[{"agent":"duplicate-detector","score":10,"rationale":"Definite duplicate — shared phone and coordinate proximity with row 2990."}]}
+
+CRITICAL: The line after "PROMOTION_PROPOSAL:" must be a single valid JSON object — not prose, not bullet points, not a description. Copy the structure above exactly, filling in real values. When merge_into_row_id is present, it must be a number (the row_id integer), not a string.
 
 ---
 

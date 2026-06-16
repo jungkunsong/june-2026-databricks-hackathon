@@ -382,6 +382,26 @@ const MIGRATION_SQL = [
       ALTER TABLE app.decision_log ADD COLUMN agent_scores JSONB;
     END IF;
   END $$`,
+
+  // facilities_resolved: add merge_into_row_id — set when this row is a duplicate of another
+  `DO $$ BEGIN
+    IF NOT EXISTS (
+      SELECT 1 FROM information_schema.columns
+      WHERE table_schema='app' AND table_name='facilities_resolved' AND column_name='merge_into_row_id'
+    ) THEN
+      ALTER TABLE app.facilities_resolved ADD COLUMN merge_into_row_id INTEGER;
+    END IF;
+  END $$`,
+
+  // decision_log: add merge_into_row_id — mirrors the resolved row for audit purposes
+  `DO $$ BEGIN
+    IF NOT EXISTS (
+      SELECT 1 FROM information_schema.columns
+      WHERE table_schema='app' AND table_name='decision_log' AND column_name='merge_into_row_id'
+    ) THEN
+      ALTER TABLE app.decision_log ADD COLUMN merge_into_row_id INTEGER;
+    END IF;
+  END $$`,
 ];
 
 export async function initSchema(lb: LakebaseHandle) {

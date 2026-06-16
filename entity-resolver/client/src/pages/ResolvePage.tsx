@@ -875,8 +875,12 @@ export function ResolvePage() {
               <span className="text-xs text-muted-foreground font-medium">Edit fields below</span>
             )}
             {promoted && (
-              <span className={`text-xs font-medium ${promoted.outcome === 'deferred' ? 'text-yellow-600' : 'text-green-600'}`}>
-                {promoted.outcome === 'deferred' ? 'Deferred' : 'Approved'}
+              <span className={`text-xs font-medium ${
+                promoted.outcome === 'deferred' ? 'text-yellow-600'
+                : promoted.outcome === 'merged' ? 'text-amber-600'
+                : 'text-green-600'
+              }`}>
+                {promoted.outcome === 'deferred' ? 'Deferred' : promoted.outcome === 'merged' ? 'Merged' : 'Approved'}
               </span>
             )}
           </div>

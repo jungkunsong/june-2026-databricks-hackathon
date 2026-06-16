@@ -287,6 +287,99 @@ export function setupResolutionRoutes(lb: LakebaseHandle, srv: ServerHandle) {
       }
     });
 
+    // ── Merge ─────────────────────────────────────────────────────────────
+    //
+    // POST /api/merge
+    //   Records that a duplicate row should be merged into a canonical row.
+    //   Atomically writes:
+    //     1. app.facilities_resolved  — a 'merged' outcome row for the duplicate
+    //     2. app.decision_log         — audit entry with merge_into_row_id
+    //     3. app.resolution_tasks     — status → 'resolved'
+    //
+    // Request body:
+    // {
+    //   task_id:           number,
+    //   raw_row_id:        number,        — the duplicate row being merged away
+    //   merge_into_row_id: number,        — the canonical row it merges into
+    //   facility_name:     string,
+    //   reasoning:         string,
+    //   confidence:        number,
+    //   agents_consulted:  string[],
+    //   human_notes:       string | null,
+    //   agent_scores:      { agent, score, rationale }[] | null,
+    // }
+    app.post('/api/merge', async (req, res) => {
+      try {
+        const {
+          task_id,
+          raw_row_id,
+          merge_into_row_id,
+          facility_name,
+          reasoning,
+          confidence,
+          agents_consulted,
+          human_notes,
+          agent_scores,
+        } = req.body as {
+          task_id: number;
+          raw_row_id: number;
+          merge_into_row_id: number;
+          facility_name?: string | null;
+          reasoning: string;
+          confidence?: number | null;
+          agents_consulted?: string[] | null;
+          human_notes?: string | null;
+          agent_scores?: Array<{ agent: string; score: number; rationale: string }> | null;
+        };
+
+        if (!task_id || !raw_row_id || !merge_into_row_id) {
+          res.status(400).json({ error: 'task_id, raw_row_id, and merge_into_row_id are required' });
+          return;
+        }
+
+        const confidenceNum = typeof confidence === 'number' ? confidence : null;
+
+        // 1. Write a facilities_resolved row with outcome='merged' and merge_into_row_id set
+        const resolvedResult = await lb.query(`
+          INSERT INTO app.facilities_resolved
+            (task_id, raw_row_id, name, outcome, resolution_outcome, confidence,
+             merge_into_row_id, resolved_by)
+          VALUES ($1, $2, $3, 'merged', 'merged', $4, $5, 'supervisor_agent')
+          RETURNING id
+        `, [task_id, raw_row_id, facility_name ?? null, confidenceNum, merge_into_row_id]);
+
+        const resolved_id = (resolvedResult.rows[0] as { id: number }).id;
+
+        // 2. Write decision_log entry
+        await lb.query(`
+          INSERT INTO app.decision_log
+            (task_id, resolved_id, raw_row_id, facility_name, outcome, confidence,
+             reasoning, agents_consulted, human_notes, agent_scores, merge_into_row_id)
+          VALUES ($1, $2, $3, $4, 'merged', $5, $6, $7, $8, $9, $10)
+        `, [
+          task_id, resolved_id, raw_row_id, facility_name ?? null,
+          confidenceNum, reasoning,
+          agents_consulted && agents_consulted.length > 0 ? agents_consulted : null,
+          human_notes ?? null,
+          agent_scores && agent_scores.length > 0 ? JSON.stringify(agent_scores) : null,
+          merge_into_row_id,
+        ]);
+
+        // 3. Mark task resolved
+        await lb.query(`
+          UPDATE app.resolution_tasks
+          SET status = 'resolved', resolved_at = NOW(), updated_at = NOW()
+          WHERE id = $1
+        `, [task_id]);
+
+        res.status(201).json({ resolved_id, task_id, outcome: 'merged', merge_into_row_id });
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        console.error('[merge] error', msg);
+        res.status(500).json({ error: `Failed to record merge: ${msg}` });
+      }
+    });
+
     // ── Resolved records ──────────────────────────────────────────────────
 
     // GET /api/resolved — all promoted records
