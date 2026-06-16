@@ -12,11 +12,11 @@ The trust score is the sum of five category scores, each worth up to **20 points
 
 | # | Category | Agent | File | Max Score |
 |---|---|---|---|---|
-| 1 | Source Authority | `SourceAuthorityAgent` | [source-authority-validation.md](validation-methods/source-authority-validation.md) | 20 |
-| 2 | Website Presence | `WebsiteAgent` | [website-validation.md](validation-methods/website-validation.md) | 20 |
-| 3 | Contacts Quality | `ContactsAgent` | [contacts-validation.md](validation-methods/contacts-validation.md) | 20 |
-| 4 | Contextual Depth | `ContextAgent` | [context-validation.md](validation-methods/context-validation.md) | 20 |
-| 5 | Social Media | `SocialAgent` | [social-validation.md](validation-methods/social-validation.md) | 20 |
+| 1 | Source Authority | `source-authority-validator` | [source-authority-validation.md](validation-methods/source-authority-validation.md) | 20 |
+| 2 | Website Presence | `website-validator` | [website-validation.md](validation-methods/website-validation.md) | 20 |
+| 3 | Contacts Quality | `contacts-validator` | [contacts-validation.md](validation-methods/contacts-validation.md) | 20 |
+| 4 | Contextual Depth | `context-validator` | [context-validation.md](validation-methods/context-validation.md) | 20 |
+| 5 | Social Media | `social-validator` | [social-validation.md](validation-methods/social-validation.md) | 20 |
 | | **Total** | | | **100** |
 
 ### Score Bands
@@ -48,11 +48,11 @@ The supervisory agent collects the five sub-scores, sums them into the final tru
 
 | Agent | Primary data source | Key judgment calls |
 |---|---|---|
-| `SourceAuthorityAgent` | `source_urls` array | Classify unlisted domains by reasoning, not default-to-0 |
-| `WebsiteAgent` | `officialWebsite`, page metadata | HTTP status interpretation, NULL scrape-gap detection |
-| `ContactsAgent` | `telephone`, `email`, coordinates, pincode | Phone regex edge cases, city/district naming gaps |
-| `ContextAgent` | `specialties`, `description`, `numberDoctors`, `capacity` | Boilerplate detection, unlisted specialty keywords |
-| `SocialAgent` | `social_media_*`, Facebook page link | Partial name matches, engagement outlier handling |
+| `source-authority-validator` | `source_urls` array | Classify unlisted domains by reasoning, not default-to-0 |
+| `website-validator` | `officialWebsite`, page metadata | HTTP status interpretation, NULL scrape-gap detection |
+| `contacts-validator` | `telephone`, `email`, coordinates, pincode | Phone regex edge cases, city/district naming gaps |
+| `context-validator` | `specialties`, `description`, `numberDoctors`, `capacity` | Boilerplate detection, unlisted specialty keywords |
+| `social-validator` | `social_media_*`, Facebook page link | Partial name matches, engagement outlier handling |
 
 ### Key Principle: No Automatic Zeros
 
