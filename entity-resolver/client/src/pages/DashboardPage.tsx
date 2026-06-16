@@ -375,10 +375,10 @@ export function DashboardPage() {
           <h2 className="text-sm font-semibold text-[#0B2026]">How it works</h2>
           <ol className="space-y-3">
             {[
-              { icon: Layers,      color: 'text-amber-600 bg-amber-50',   step: '1', title: 'Pick a cluster', body: 'Select an ambiguous facility cluster from the resolution queue. Each cluster groups duplicate or conflicting source records.' },
-              { icon: Sparkles,    color: 'text-blue-600 bg-blue-50',     step: '2', title: 'Run AI verification', body: 'The Supervisor dispatches up to 7 sub-agents in parallel — website, contacts, social, context, source authority, and duplicate detection.' },
-              { icon: GitMerge,    color: 'text-purple-600 bg-purple-50', step: '3', title: 'Review the proposal', body: 'Inspect per-agent scores, field-by-field findings, and the Supervisor\'s confidence rating. Edit any values and add reviewer notes.' },
-              { icon: ShieldCheck, color: 'text-green-600 bg-green-50',   step: '4', title: 'Approve or defer', body: 'Approve to write a clean, verified record to the resolved dataset — or defer for manual review.' },
+              { icon: Layers,      color: 'text-amber-600 bg-amber-50',   step: '1', title: 'Pick a cluster', body: 'Open a group of duplicate or conflicting facility records from the queue.' },
+              { icon: Sparkles,    color: 'text-blue-600 bg-blue-50',     step: '2', title: 'AI runs validation', body: '7 sub-agents verify website, contacts, location, social, context, source authority, and duplicates in parallel.' },
+              { icon: GitMerge,    color: 'text-purple-600 bg-purple-50', step: '3', title: 'Review the proposal', body: 'See per-agent scores and a confidence rating. Edit fields or add notes.' },
+              { icon: ShieldCheck, color: 'text-green-600 bg-green-50',   step: '4', title: 'Approve or defer', body: 'Promote a clean record to the resolved dataset, or defer for manual review.' },
             ].map(({ color, step, title, body }) => (
               <li key={step} className="flex gap-3">
                 <div className={`mt-0.5 flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-full text-xs font-bold ${color}`}>
