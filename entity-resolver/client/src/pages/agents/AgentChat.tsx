@@ -44,22 +44,8 @@ const AGENT_LABELS: Record<string, string> = {
   'agent-controlled-vocabulary-validator': 'Validating controlled vocabulary…',
 };
 
-// Ordered list of agent names to detect from inline JSON blobs in the stream.
-// Each entry: [substring to look for in raw content, canonical agent key]
-const AGENT_CONTENT_SIGNALS: [string, string][] = [
-  // evidence-fetcher result has no "agent" key — detect by unique field
-  ['"latitude"',                                'agent-evidence-fetcher'],
-  ['"agent":"website-validator"',               'agent-website-validator'],
-  ['"agent":"phone-validator"',                 'agent-phone-validator'],
-  ['"agent":"location-validator"',              'agent-location-validator'],
-  ['"agent":"facebook-validator"',              'agent-facebook-validator'],
-  ['"agent":"similarity-scorer"',               'agent-similarity-scorer'],
-  ['"agent":"duplicate-detector"',              'agent-duplicate-detector'],
-  ['"agent":"context-validator"',               'agent-context-validator'],
-  ['"agent":"skill-matcher"',                   'agent-skill-matcher'],
-  ['"agent":"source-authority-validator"',      'agent-source-authority-validator'],
-  ['"agent":"controlled-vocabulary-validator"', 'agent-controlled-vocabulary-validator'],
-];
+// ms between each agent row appearing during the playback animation
+const PLAYBACK_STEP_MS = 400;
 
 function agentLabel(toolName: string): string {
   return AGENT_LABELS[toolName] ?? `Calling ${toolName.replace(/^agent-/, '').replace(/-/g, ' ')}…`;
@@ -107,12 +93,18 @@ export function AgentChat({ agentName, initialMessage, placeholder, started = fa
   const activeAgent = agentName ?? defaultAgent ?? agents[0] ?? null;
 
   const [messages, setMessages] = useState<Message[]>([]);
-  // Ordered list of agent names seen so far this run (drives the activity feed)
-  const [activeAgents, setActiveAgents] = useState<string[]>([]);
   const [input, setInput] = useState('');
   const [pendingAssistantId, setPendingAssistantId] = useState<string | null>(null);
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const sendDoneRef = useRef(false);
+
+  // ── Activity feed state ───────────────────────────────────────────────────
+  // allAgents: full ordered list extracted from events (populated when batch arrives)
+  // visibleCount: how many rows are currently shown (animated up from 0)
+  const [allAgents, setAllAgents] = useState<string[]>([]);
+  const [visibleCount, setVisibleCount] = useState(0);
+  // playback timer ref so we can clear it on reset
+  const playbackTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     onMessagesChange?.(messages.map((m) => ({ role: m.role, content: m.content })));
@@ -122,17 +114,17 @@ export function AgentChat({ agentName, initialMessage, placeholder, started = fa
   const resetRef = useRef<(() => void) | null>(null);
   const seededRef = useRef(false);
 
-  // ── onEvent: primary path — fires for supervisor's own LLM tool_call events
+  // ── Collect agent names from every event batch ────────────────────────────
+  const lastProcessedEventIdx = useRef(0);
+
   const handleEvent = (event: AgentChatEvent) => {
-    // DEBUG: log every event so we can see what actually arrives
-    console.log('[AgentChat event]', event.type, (event as unknown as Record<string, unknown>));
     if (
       event.type === 'response.output_item.added' &&
       event.item?.type === 'function_call' &&
-      event.item.name
+      event.item.name?.startsWith('agent-')
     ) {
       const name = event.item.name;
-      setActiveAgents((prev) => prev.includes(name) ? prev : [...prev, name]);
+      setAllAgents((prev) => prev.includes(name) ? prev : [...prev, name]);
     }
   };
 
@@ -144,8 +136,7 @@ export function AgentChat({ agentName, initialMessage, placeholder, started = fa
   sendRef.current = send;
   resetRef.current = reset;
 
-  // ── Secondary path: watch the events array directly (catches any missed by onEvent)
-  const lastProcessedEventIdx = useRef(0);
+  // Secondary path: scan new events for function_call items
   useEffect(() => {
     const newEvents = events.slice(lastProcessedEventIdx.current);
     lastProcessedEventIdx.current = events.length;
@@ -153,30 +144,37 @@ export function AgentChat({ agentName, initialMessage, placeholder, started = fa
       if (
         event.type === 'response.output_item.added' &&
         event.item?.type === 'function_call' &&
-        event.item.name
+        event.item.name?.startsWith('agent-')
       ) {
         const name = event.item.name as string;
-        setActiveAgents((prev) => prev.includes(name) ? prev : [...prev, name]);
+        setAllAgents((prev) => prev.includes(name) ? prev : [...prev, name]);
       }
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [events]);
 
-  // ── Tertiary fallback: parse agent names from inline JSON blobs in the stream
+  // ── Playback animation: when allAgents grows, step visibleCount up one at a time
   useEffect(() => {
-    if (!content || !isStreaming) return;
-    for (const [signal, agentName] of AGENT_CONTENT_SIGNALS) {
-      if (content.includes(signal)) {
-        setActiveAgents((prev) => prev.includes(agentName) ? prev : [...prev, agentName]);
-      }
-    }
-  }, [content, isStreaming]);
+    if (allAgents.length === 0) return;
+    if (visibleCount >= allAgents.length) return;
+
+    // Clear any existing timer before scheduling the next step
+    if (playbackTimerRef.current) clearTimeout(playbackTimerRef.current);
+
+    playbackTimerRef.current = setTimeout(() => {
+      setVisibleCount((c) => Math.min(c + 1, allAgents.length));
+    }, PLAYBACK_STEP_MS);
+
+    return () => {
+      if (playbackTimerRef.current) clearTimeout(playbackTimerRef.current);
+    };
+  }, [allAgents, visibleCount]);
 
   useEffect(() => { onStreamingChange?.(isStreaming); }, [isStreaming, onStreamingChange]);
 
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight });
-  }, [messages, content, activeAgents]);
+  }, [messages, content, visibleCount]);
 
   // Update the in-progress assistant bubble
   useEffect(() => {
@@ -188,6 +186,14 @@ export function AgentChat({ agentName, initialMessage, placeholder, started = fa
     }
   }, [content, pendingAssistantId]);
 
+  // Helper to reset all feed state between runs
+  const resetFeed = () => {
+    if (playbackTimerRef.current) clearTimeout(playbackTimerRef.current);
+    setAllAgents([]);
+    setVisibleCount(0);
+    lastProcessedEventIdx.current = 0;
+  };
+
   useEffect(() => {
     if (!started || !activeAgent || seededRef.current) return;
     const msg = initialMessage?.trim();
@@ -195,7 +201,7 @@ export function AgentChat({ agentName, initialMessage, placeholder, started = fa
     seededRef.current = true;
     const assistantId = `a-seed-${Date.now()}`;
     resetRef.current?.();
-    setActiveAgents([]);
+    resetFeed();
     setMessages([
       { id: `u-seed-${Date.now()}`, role: 'user', content: msg },
       { id: assistantId, role: 'assistant', content: '' },
@@ -203,12 +209,9 @@ export function AgentChat({ agentName, initialMessage, placeholder, started = fa
     setPendingAssistantId(assistantId);
     const trySend = async (attemptsLeft: number): Promise<void> => {
       try {
-        console.log('[AgentChat] calling send, agent=', activeAgent, 'msg=', msg.slice(0, 60));
         await sendRef.current!(msg);
-        console.log('[AgentChat] send resolved');
         sendDoneRef.current = true;
       } catch (err) {
-        console.error('[AgentChat] send error:', err);
         const is429 = String(err).includes('429') || String(err).toLowerCase().includes('rate limit') || String(err).toLowerCase().includes('too many requests');
         if (is429 && attemptsLeft > 1) {
           await new Promise((r) => setTimeout(r, (4 - attemptsLeft) * 3000));
@@ -216,7 +219,7 @@ export function AgentChat({ agentName, initialMessage, placeholder, started = fa
         } else { throw err; }
       }
     };
-    void trySend(3).catch((err) => console.error('[AgentChat] trySend failed:', err));
+    void trySend(3);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [started, activeAgent, initialMessage]);
 
@@ -226,8 +229,7 @@ export function AgentChat({ agentName, initialMessage, placeholder, started = fa
     if (!message || isStreaming || !activeAgent) return;
     setInput('');
     const assistantId = `a-${Date.now()}`;
-    // Reset activity feed for new turn
-    setActiveAgents([]);
+    resetFeed();
     setMessages((prev) => [
       ...prev,
       { id: `u-${Date.now()}`, role: 'user', content: message },
@@ -237,6 +239,12 @@ export function AgentChat({ agentName, initialMessage, placeholder, started = fa
     await send(message);
     sendDoneRef.current = true;
   };
+
+  // Rows to show: slice allAgents to visibleCount; the last visible one gets a spinner
+  // while streaming OR while the playback animation is still stepping through
+  const feedRows = allAgents.slice(0, visibleCount);
+  const playbackInProgress = visibleCount < allAgents.length;
+  const showFeedSpinner = isStreaming || playbackInProgress;
 
   return (
     <div className="flex h-full flex-col">
@@ -264,26 +272,26 @@ export function AgentChat({ agentName, initialMessage, placeholder, started = fa
                     {isUser ? <User className="h-3 w-3 text-white" /> : <Bot className="h-3 w-3 text-white" />}
                   </div>
                   <div className={`max-w-[85%] rounded-lg px-3 py-2 text-sm ${isUser ? 'bg-[#FF3621]/10 text-[#0B2026]' : 'bg-[#EEEDE9] text-[#0B2026]'}`}>
-                    {/* ── Activity feed — inside the pending bubble while streaming ── */}
-                    {isPendingBubble && isStreaming && activeAgents.length > 0 && (
+                    {/* ── Activity feed — visible while streaming or animating ── */}
+                    {isPendingBubble && (isStreaming || playbackInProgress) && feedRows.length > 0 && (
                       <div className="mb-2 space-y-1.5">
-                        {activeAgents.map((agentName, idx) => {
-                          const isLatest = idx === activeAgents.length - 1;
+                        {feedRows.map((name, idx) => {
+                          const isLatestRow = idx === feedRows.length - 1;
+                          const isActive = isLatestRow && showFeedSpinner;
                           return (
-                            <div key={agentName} className="flex items-center gap-2">
+                            <div key={name} className="flex items-center gap-2">
                               <div className="flex h-5 w-5 flex-shrink-0 items-center justify-center rounded-full bg-white/60">
-                                {isLatest
+                                {isActive
                                   ? <Loader2 className="h-3 w-3 animate-spin text-[#FF3621]" />
                                   : <Zap className="h-3 w-3 text-green-600" />
                                 }
                               </div>
-                              <span className={`text-xs ${isLatest ? 'text-[#0B2026] font-medium' : 'text-muted-foreground line-through'}`}>
-                                {agentLabel(agentName)}
+                              <span className={`text-xs ${isActive ? 'text-[#0B2026] font-medium' : 'text-muted-foreground line-through'}`}>
+                                {agentLabel(name)}
                               </span>
                             </div>
                           );
                         })}
-                        {/* Separator between feed and prose content once it starts appearing */}
                         {cleanContent(m.content) && <div className="border-t border-black/10 pt-2" />}
                       </div>
                     )}
@@ -291,7 +299,7 @@ export function AgentChat({ agentName, initialMessage, placeholder, started = fa
                       {(m.content ? cleanContent(m.content) : '') || (isPendingBubble && isStreaming ? (
                         <span className="flex items-center gap-1 text-muted-foreground">
                           <Loader2 className="h-3 w-3 animate-spin" />
-                          {activeAgents.length > 0 ? 'Preparing summary…' : 'Starting up…'}
+                          Analysing…
                         </span>
                       ) : '')}
                     </div>
