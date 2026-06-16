@@ -17,11 +17,11 @@ import {
   BookOpen,
   Star,
   Copy,
-  Users,
   Search,
   GitMerge,
   Brain,
 } from 'lucide-react';
+
 import { clustersApi, decisionLogApi, type DecisionLogEntry } from '../lib/api';
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -189,12 +189,12 @@ export function DashboardPage() {
   }, []);
 
   const resolved = decisions.length;
-  const avgConfidence =
-    decisions.length > 0
-      ? Math.round(
-          (decisions.reduce((s, e) => s + (e.confidence ?? 0), 0) / decisions.length) * 100,
-        )
-      : null;
+  const avgConfidence = (() => {
+    const withConf = decisions.filter((e) => e.confidence != null);
+    if (withConf.length === 0) return null;
+    const avg = withConf.reduce((s, e) => s + Number(e.confidence), 0) / withConf.length;
+    return isNaN(avg) ? null : Math.round(avg * 100);
+  })();
 
   const recentDecisions = decisions.slice(0, 5);
 
@@ -251,17 +251,9 @@ export function DashboardPage() {
       icon: Copy,
       iconBg: 'bg-teal-50 text-teal-600',
       name: 'Duplicate Detector',
-      score: 'duplicate_flag · boolean',
-      description: 'Detects near-duplicate records within a cluster using name fuzzy-match, address overlap, and phone/website fingerprinting.',
-      signals: ['name similarity', 'address overlap', 'phone hash', 'website hash'],
-    },
-    {
-      icon: Users,
-      iconBg: 'bg-orange-50 text-orange-600',
-      name: 'Similarity Scorer',
-      score: 'similarity_score · 0–1',
-      description: 'Computes pairwise similarity across all records in a cluster to surface the best canonical candidate for promotion.',
-      signals: ['name', 'address', 'phone', 'website', 'specialties'],
+      score: 'merge_recommendation · definite/likely/possible/none',
+      description: 'Finds near-duplicate records via shared phone, website, Facebook, or coordinates within 0.5 km. Also checks internal field coherence — name vs. facility type, address consistency, and coordinate plausibility.',
+      signals: ['shared phone', 'shared website', 'shared facebook', 'coordinates', 'name fuzzy-match'],
     },
   ];
 
@@ -306,7 +298,7 @@ export function DashboardPage() {
           </span>
           <ArrowRight className="h-3 w-3 text-border flex-shrink-0" />
           <span className="flex items-center gap-1.5 rounded-full bg-muted px-3 py-1">
-            <Brain className="h-3 w-3" /> 8 parallel sub-agents
+            <Brain className="h-3 w-3" /> 7 parallel sub-agents
           </span>
           <ArrowRight className="h-3 w-3 text-border flex-shrink-0" />
           <span className="flex items-center gap-1.5 rounded-full bg-muted px-3 py-1">
@@ -365,7 +357,7 @@ export function DashboardPage() {
             </p>
           </div>
           <span className="rounded-full bg-[#0B2026]/5 px-3 py-1 text-[11px] font-semibold text-[#0B2026]">
-            8 agents · scores 0–20
+            7 agents · scores 0–20
           </span>
         </div>
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
@@ -384,7 +376,7 @@ export function DashboardPage() {
           <ol className="space-y-3">
             {[
               { icon: Layers,      color: 'text-amber-600 bg-amber-50',   step: '1', title: 'Pick a cluster', body: 'Select an ambiguous facility cluster from the resolution queue. Each cluster groups duplicate or conflicting source records.' },
-              { icon: Sparkles,    color: 'text-blue-600 bg-blue-50',     step: '2', title: 'Run AI verification', body: 'The Supervisor dispatches up to 8 sub-agents in parallel — website, phone, location, social, context, source authority, duplicates, and similarity.' },
+              { icon: Sparkles,    color: 'text-blue-600 bg-blue-50',     step: '2', title: 'Run AI verification', body: 'The Supervisor dispatches up to 7 sub-agents in parallel — website, contacts, social, context, source authority, and duplicate detection.' },
               { icon: GitMerge,    color: 'text-purple-600 bg-purple-50', step: '3', title: 'Review the proposal', body: 'Inspect per-agent scores, field-by-field findings, and the Supervisor\'s confidence rating. Edit any values and add reviewer notes.' },
               { icon: ShieldCheck, color: 'text-green-600 bg-green-50',   step: '4', title: 'Approve or defer', body: 'Approve to write a clean, verified record to the resolved dataset — or defer for manual review.' },
             ].map(({ color, step, title, body }) => (
