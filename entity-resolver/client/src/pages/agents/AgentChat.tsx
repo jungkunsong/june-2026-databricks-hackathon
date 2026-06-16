@@ -125,7 +125,7 @@ export function AgentChat({ agentName, initialMessage, placeholder, started = fa
   // ── onEvent: primary path — fires for supervisor's own LLM tool_call events
   const handleEvent = (event: AgentChatEvent) => {
     // DEBUG: log every event so we can see what actually arrives
-    console.log('[AgentChat event]', event.type, (event as Record<string, unknown>));
+    console.log('[AgentChat event]', event.type, (event as unknown as Record<string, unknown>));
     if (
       event.type === 'response.output_item.added' &&
       event.item?.type === 'function_call' &&
