@@ -172,6 +172,13 @@ export function setupResolutionRoutes(lb: LakebaseHandle, srv: ServerHandle) {
     });
 
     app.post('/api/promote', async (req, res) => {
+      // Hard timeout — Databricks Apps proxy kills at ~30s with 502; we respond before that
+      const timeoutHandle = setTimeout(() => {
+        if (!res.headersSent) {
+          res.status(504).json({ error: 'Promote timed out — Lakebase query took too long. Please retry.' });
+        }
+      }, 25_000);
+
       try {
         console.log('[promote] body:', JSON.stringify(req.body, null, 2));
         const {
@@ -215,6 +222,10 @@ export function setupResolutionRoutes(lb: LakebaseHandle, srv: ServerHandle) {
         }
 
         const f = resolved_fields;
+
+        // Set a per-query statement timeout so a stalled Lakebase connection
+        // doesn't hang the request indefinitely (causes 502 at the proxy).
+        await lb.query(`SET statement_timeout = '20s'`);
 
         // Look up cluster_id from the task row — the live facilities_resolved table
         // has a NOT NULL constraint on cluster_id so we must supply it.
@@ -280,10 +291,12 @@ export function setupResolutionRoutes(lb: LakebaseHandle, srv: ServerHandle) {
         `, [taskIdNum]);
 
         res.status(201).json({ resolved_id, task_id: taskIdNum, outcome });
+        clearTimeout(timeoutHandle);
       } catch (err) {
+        clearTimeout(timeoutHandle);
         const msg = err instanceof Error ? err.message : String(err);
         console.error('[promote] error', msg);
-        res.status(500).json({ error: `Failed to promote record: ${msg}` });
+        if (!res.headersSent) res.status(500).json({ error: `Failed to promote record: ${msg}` });
       }
     });
 
@@ -309,6 +322,11 @@ export function setupResolutionRoutes(lb: LakebaseHandle, srv: ServerHandle) {
     //   agent_scores:      { agent, score, rationale }[] | null,
     // }
     app.post('/api/merge', async (req, res) => {
+      const timeoutHandle = setTimeout(() => {
+        if (!res.headersSent) {
+          res.status(504).json({ error: 'Merge timed out — Lakebase query took too long. Please retry.' });
+        }
+      }, 25_000);
       try {
         const {
           task_id,
@@ -338,6 +356,8 @@ export function setupResolutionRoutes(lb: LakebaseHandle, srv: ServerHandle) {
         }
 
         const confidenceNum = typeof confidence === 'number' ? confidence : null;
+
+        await lb.query(`SET statement_timeout = '20s'`);
 
         // 1. Write a facilities_resolved row with outcome='merged' and merge_into_row_id set
         const resolvedResult = await lb.query(`
@@ -373,10 +393,12 @@ export function setupResolutionRoutes(lb: LakebaseHandle, srv: ServerHandle) {
         `, [task_id]);
 
         res.status(201).json({ resolved_id, task_id, outcome: 'merged', merge_into_row_id });
+        clearTimeout(timeoutHandle);
       } catch (err) {
+        clearTimeout(timeoutHandle);
         const msg = err instanceof Error ? err.message : String(err);
         console.error('[merge] error', msg);
-        res.status(500).json({ error: `Failed to record merge: ${msg}` });
+        if (!res.headersSent) res.status(500).json({ error: `Failed to record merge: ${msg}` });
       }
     });
 
