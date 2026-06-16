@@ -83,3 +83,8 @@ export function subscribe(runId: string, res: Response): void {
   state.clients.add(res);
   res.on('close', () => state.clients.delete(res));
 }
+
+/** Return a snapshot of steps for a run (used by the polling endpoint). */
+export function getSteps(runId: string): ProgressStep[] {
+  return store.get(runId)?.steps ?? [];
+}

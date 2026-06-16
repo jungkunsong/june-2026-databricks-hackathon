@@ -114,7 +114,9 @@ export function AgentChat({ agentName, initialMessage, placeholder, started = fa
   const [visibleCount, setVisibleCount] = useState(0);
   const playbackTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const sendInFlightRef = useRef(false);
-  // SSE subscription
+  // ── Poll /api/progress/:rowId/steps every 1.5 s while a run is in flight ──
+  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  // SSE subscription (kept but replaced by polling below)
   const sseRef = useRef<EventSource | null>(null);
 
   useEffect(() => {
@@ -132,27 +134,29 @@ export function AgentChat({ agentName, initialMessage, placeholder, started = fa
   sendRef.current = send;
   resetRef.current = reset;
 
-  // ── Subscribe to SSE progress stream for a given row_id ──────────────────
+  // ── Poll /api/progress/:rowId/steps while a run is in flight ────────────
   const subscribeToProgress = (rowId: string) => {
+    // Clear any existing SSE / poll
     if (sseRef.current) { sseRef.current.close(); sseRef.current = null; }
-    const es = new EventSource(`/api/progress/${rowId}`);
-    sseRef.current = es;
-    es.onmessage = (e) => {
+    if (pollRef.current) { clearInterval(pollRef.current); pollRef.current = null; }
+
+    console.log('[Progress] starting poll for rowId', rowId);
+
+    const fetchSteps = async () => {
       try {
-        const step = JSON.parse(e.data) as { agent: string; status: 'running' | 'done' };
-        setAgentSteps((prev) => {
-          const idx = prev.findIndex((s) => s.agent === step.agent);
-          if (idx >= 0) {
-            // Update existing step
-            const next = [...prev];
-            next[idx] = step;
-            return next;
-          }
-          return [...prev, step];
-        });
-      } catch { /* ignore malformed */ }
+        const res = await fetch(`/api/progress/${rowId}/steps`);
+        if (!res.ok) { console.warn('[Progress] poll non-ok', res.status); return; }
+        const data = await res.json() as { steps: { agent: string; status: 'running' | 'done' }[] };
+        console.log('[Progress] poll result', data.steps);
+        setAgentSteps(data.steps);
+      } catch (err) {
+        console.warn('[Progress] poll error', err);
+      }
     };
-    es.onerror = () => { es.close(); sseRef.current = null; };
+
+    // Fire immediately, then every 1.5 s
+    void fetchSteps();
+    pollRef.current = setInterval(fetchSteps, 1500);
   };
 
   // ── Fallback: parse PROMOTION_PROPOSAL from content if SSE yielded nothing
@@ -187,6 +191,8 @@ export function AgentChat({ agentName, initialMessage, placeholder, started = fa
     if (agentSteps.length > 0 && agentSteps.some((s) => s.status === 'running')) return;
     // Fallback path: wait for playback
     if (allAgents.length > 0 && visibleCount < allAgents.length) return;
+    // Stop polling — run is complete
+    if (pollRef.current) { clearInterval(pollRef.current); pollRef.current = null; }
     setIsWaiting(false);
   }, [isStreaming, agentSteps, visibleCount, allAgents.length]);
 
@@ -210,6 +216,7 @@ export function AgentChat({ agentName, initialMessage, placeholder, started = fa
   const resetFeed = (rowId?: string | null) => {
     if (playbackTimerRef.current) clearTimeout(playbackTimerRef.current);
     if (sseRef.current) { sseRef.current.close(); sseRef.current = null; }
+    if (pollRef.current) { clearInterval(pollRef.current); pollRef.current = null; }
     setIsWaiting(true);
     setAgentSteps([]);
     setAllAgents([]);
@@ -217,8 +224,11 @@ export function AgentChat({ agentName, initialMessage, placeholder, started = fa
     if (rowId) subscribeToProgress(rowId);
   };
 
-  // Cleanup SSE on unmount
-  useEffect(() => () => { sseRef.current?.close(); }, []);
+  // Cleanup SSE/poll on unmount
+  useEffect(() => () => {
+    sseRef.current?.close();
+    if (pollRef.current) clearInterval(pollRef.current);
+  }, []);
 
   useEffect(() => {
     if (!started || !activeAgent || seededRef.current) return;

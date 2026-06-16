@@ -4,13 +4,20 @@
  * copied there once by the sync notebook.
  */
 import type { LakebaseHandle, ServerHandle } from '../plugin-handles';
-import { subscribe } from '../progress-store';
+import { subscribe, getSteps } from '../progress-store';
 
 export function setupFacilitiesRoutes(lb: LakebaseHandle, srv: ServerHandle) {
   srv.extend((app) => {
 
-    // GET /api/progress/:runId — SSE stream of agent progress steps for a run.
-    // runId is the row_id string from the initial message.
+    // GET /api/progress/:runId/steps — JSON polling endpoint for agent progress.
+    // Returns { steps: ProgressStep[] } — client polls every ~1.5 s.
+    // This is proxy-buffering-immune because each request is a complete response.
+    app.get('/api/progress/:runId/steps', (req, res) => {
+      res.setHeader('Cache-Control', 'no-store');
+      res.json({ steps: getSteps(req.params.runId) });
+    });
+
+    // GET /api/progress/:runId — SSE stream (kept for reference; may be buffered by proxy).
     app.get('/api/progress/:runId', (req, res) => {
       res.setHeader('Content-Type', 'text/event-stream');
       res.setHeader('Cache-Control', 'no-cache');
