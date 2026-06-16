@@ -210,13 +210,19 @@ function FieldApprovalTable({
 
       {/* Field rows */}
       <div className="rounded-md border border-border overflow-hidden">
-        <table className="w-full text-xs">
+        <table className="w-full text-xs table-fixed">
+          <colgroup>
+            <col className="w-28" />   {/* Field */}
+            <col />                     {/* Proposed value — takes remaining space */}
+            <col className="w-24" />   {/* Status */}
+            <col className="w-16" />   {/* Actions */}
+          </colgroup>
           <thead className="bg-[#EEEDE9]">
             <tr>
-              <th className="px-3 py-2 text-left font-semibold text-[#0B2026] w-28">Field</th>
+              <th className="px-3 py-2 text-left font-semibold text-[#0B2026]">Field</th>
               <th className="px-3 py-2 text-left font-semibold text-[#0B2026]">Proposed value</th>
-              <th className="px-3 py-2 text-left font-semibold text-[#0B2026] w-20">Status</th>
-              <th className="px-2 py-2 w-16" />
+              <th className="px-3 py-2 text-left font-semibold text-[#0B2026]">Status</th>
+              <th className="px-2 py-2" />
             </tr>
           </thead>
           <tbody className="divide-y divide-border/60">
