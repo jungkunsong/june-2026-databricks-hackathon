@@ -10,6 +10,7 @@ import { sourceAuthorityValidatorAgent } from './agents/source-authority-validat
 import { controlledVocabularyValidatorAgent } from './agents/controlled-vocabulary-validator';
 import { contextValidatorAgent } from './agents/context-validator';
 import { duplicateDetectorAgent } from './agents/duplicate-detector';
+import { skillMatcherAgent } from './agents/skill-matcher';
 import { initSchema } from './routes/lakebase/schema';
 import { setupResolutionRoutes } from './routes/lakebase/resolution-routes';
 import { setupFacilitiesRoutes } from './routes/facilities-routes';
@@ -29,6 +30,7 @@ createApp({
         'controlled-vocabulary-validator': controlledVocabularyValidatorAgent,
         'context-validator': contextValidatorAgent,
         'duplicate-detector': duplicateDetectorAgent,
+        'skill-matcher': skillMatcherAgent,
       },
     }),
     lakebase(),
