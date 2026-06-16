@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import {
   Loader2,
   CheckCircle2,
@@ -12,6 +12,8 @@ import {
   AlertCircle,
   RotateCcw,
   Pencil,
+  Search,
+  ChevronsUpDown,
 } from 'lucide-react';
 import { useNavigate } from 'react-router';
 import { decisionLogApi, type DecisionLogEntry } from '../lib/api';
@@ -258,6 +260,10 @@ export function DecisionsPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
+  // Search + sort state
+  const [search, setSearch] = useState('');
+  const [confidenceSort, setConfidenceSort] = useState<'none' | 'asc' | 'desc'>('none');
+
   function load() {
     setLoading(true);
     setError(null);
@@ -275,6 +281,36 @@ export function DecisionsPage() {
     acc[e.outcome] = (acc[e.outcome] ?? 0) + 1;
     return acc;
   }, {});
+
+  // Filtered + sorted entries
+  const displayedEntries = useMemo(() => {
+    let result = entries;
+
+    // Filter by name search
+    if (search.trim()) {
+      const q = search.trim().toLowerCase();
+      result = result.filter((e) =>
+        (e.facility_name ?? '').toLowerCase().includes(q)
+      );
+    }
+
+    // Sort by confidence
+    if (confidenceSort !== 'none') {
+      result = [...result].sort((a, b) => {
+        const ca = a.confidence ?? -1;
+        const cb = b.confidence ?? -1;
+        return confidenceSort === 'asc' ? ca - cb : cb - ca;
+      });
+    }
+
+    return result;
+  }, [entries, search, confidenceSort]);
+
+  function cycleConfidenceSort() {
+    setConfidenceSort((prev) =>
+      prev === 'none' ? 'desc' : prev === 'desc' ? 'asc' : 'none'
+    );
+  }
 
   return (
     <div className="space-y-6">
@@ -311,6 +347,20 @@ export function DecisionsPage() {
         </div>
       )}
 
+      {/* Search box */}
+      {!loading && entries.length > 0 && (
+        <div className="relative max-w-sm">
+          <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+          <input
+            type="text"
+            placeholder="Search by facility name…"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            className="w-full rounded-md border border-border bg-white py-2 pl-9 pr-4 text-sm shadow-sm focus:outline-none focus:ring-2 focus:ring-[#FF3621]/40"
+          />
+        </div>
+      )}
+
       {/* Error */}
       {error && (
         <div className="rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
@@ -334,16 +384,36 @@ export function DecisionsPage() {
               <tr>
                 <th className="px-4 py-2.5 text-left text-xs font-semibold text-[#0B2026]">Facility</th>
                 <th className="px-4 py-2.5 text-left text-xs font-semibold text-[#0B2026]">Outcome</th>
-                <th className="hidden px-4 py-2.5 text-left text-xs font-semibold text-[#0B2026] sm:table-cell">Confidence</th>
+                {/* Clickable confidence header */}
+                <th className="hidden px-4 py-2.5 text-left text-xs font-semibold text-[#0B2026] sm:table-cell">
+                  <button
+                    onClick={cycleConfidenceSort}
+                    className="inline-flex items-center gap-1 hover:text-[#FF3621] transition-colors"
+                    title="Sort by confidence"
+                  >
+                    Confidence
+                    {confidenceSort === 'none' && <ChevronsUpDown className="h-3 w-3 text-muted-foreground" />}
+                    {confidenceSort === 'desc' && <ChevronDown className="h-3 w-3 text-[#FF3621]" />}
+                    {confidenceSort === 'asc'  && <ChevronUp   className="h-3 w-3 text-[#FF3621]" />}
+                  </button>
+                </th>
                 <th className="hidden px-4 py-2.5 text-left text-xs font-semibold text-[#0B2026] md:table-cell">Agents</th>
                 <th className="px-4 py-2.5 text-left text-xs font-semibold text-[#0B2026]">Date</th>
                 <th className="px-3 py-2.5" />
               </tr>
             </thead>
             <tbody className="divide-y divide-border">
-              {entries.map((entry) => (
-                <DecisionRow key={entry.id} entry={entry} />
-              ))}
+              {displayedEntries.length === 0 ? (
+                <tr>
+                  <td colSpan={6} className="px-4 py-10 text-center text-sm text-muted-foreground">
+                    No results for &ldquo;{search}&rdquo;
+                  </td>
+                </tr>
+              ) : (
+                displayedEntries.map((entry) => (
+                  <DecisionRow key={entry.id} entry={entry} />
+                ))
+              )}
             </tbody>
           </table>
         </div>
