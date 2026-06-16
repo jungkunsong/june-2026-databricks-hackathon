@@ -23,6 +23,8 @@ export function QueuePage() {
     const state = location.state as { resolvedClusterId?: string } | null;
     if (state?.resolvedClusterId) {
       setHiddenClusterIds((prev) => new Set([...prev, state.resolvedClusterId!]));
+      // Decrement total optimistically so the count drops immediately
+      setTotal((prev) => (prev !== null ? Math.max(0, prev - 1) : prev));
       // Clear the state so a back/forward navigation doesn't re-hide
       window.history.replaceState({}, '');
     }
@@ -77,7 +79,7 @@ export function QueuePage() {
         <h1 className="text-2xl font-bold text-[#0B2026]">Resolution Queue</h1>
         <p className="text-sm text-muted-foreground">
           {total !== null
-            ? `${total.toLocaleString()} ambiguous facility clusters awaiting resolution`
+            ? `${total.toLocaleString()} ${total === 1 ? 'facility' : 'facilities'} awaiting validation`
             : 'Loading cluster count…'}
         </p>
       </div>
