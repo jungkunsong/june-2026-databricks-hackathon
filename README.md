@@ -99,15 +99,7 @@ Raw facility records in `facilities_raw` are incomplete, inconsistent, and unver
 
 See [`entity-resolver/README.md`](entity-resolver/README.md) for setup and deployment instructions.
 
----
-
-## Setup
-
-```bash
-pip install -r requirements.txt
-playwright install chromium
-```
-
+The
 ---
 
 ## Data Quality Architecture
