@@ -30,6 +30,76 @@ interface AgentChatProps {
   onMessagesChange?: (messages: { role: string; content: string }[]) => void;
 }
 
+/**
+ * Strip raw sub-agent JSON blobs and the PROMOTION_PROPOSAL block from a
+ * supervisor message before displaying it to the user.
+ *
+ * The supervisor sometimes emits tool-result JSON objects inline — e.g.
+ * {"agent":"phone-validator","status":"LANDLINE_WARNING",...}
+ * — followed by the human-readable summary. We want to keep only the prose.
+ *
+ * Strategy:
+ *   1. Remove every top-level JSON object that starts with {"agent": or
+ *      {"name": (evidence-fetcher result) at the beginning of a line.
+ *   2. Remove the PROMOTION_PROPOSAL: ... block entirely.
+ *   3. Collapse resulting blank lines.
+ */
+function cleanContent(raw: string): string {
+  // Remove PROMOTION_PROPOSAL block (everything from the marker to end of string)
+  let s = raw.replace(/PROMOTION_PROPOSAL:[\s\S]*$/, '').trimEnd();
+
+  // Remove standalone JSON objects emitted by sub-agents.
+  // These always start with { at the beginning of a line and contain an "agent" key
+  // or are the evidence-fetcher blob (starts with {"name": or {"row_id":).
+  // We strip them by scanning line-by-line and skipping any line that opens a
+  // JSON object we can fully parse that has a known agent-result shape.
+  const lines = s.split('\n');
+  const kept: string[] = [];
+  let i = 0;
+  while (i < lines.length) {
+    const line = lines[i];
+    const trimmed = line.trimStart();
+    // Candidate: line starts with { — try to collect a complete JSON object
+    if (trimmed.startsWith('{')) {
+      // Accumulate lines until braces balance
+      let buf = '';
+      let depth = 0;
+      let j = i;
+      let found = false;
+      while (j < lines.length) {
+        buf += (j > i ? '\n' : '') + lines[j];
+        for (const ch of lines[j]) {
+          if (ch === '{') depth++;
+          else if (ch === '}') depth--;
+        }
+        if (depth <= 0) { found = true; break; }
+        j++;
+      }
+      if (found) {
+        try {
+          const obj = JSON.parse(buf) as Record<string, unknown>;
+          // Drop if it looks like a sub-agent result
+          if (
+            typeof obj['agent'] === 'string' ||   // all sub-agent results
+            ('name' in obj && 'latitude' in obj) || // evidence-fetcher
+            ('row_id' in obj && 'candidates' in obj) // duplicate-detector alt shape
+          ) {
+            i = j + 1;
+            continue;
+          }
+        } catch {
+          // Not valid JSON — keep the line as-is
+        }
+      }
+    }
+    kept.push(line);
+    i++;
+  }
+
+  // Collapse runs of 3+ blank lines down to 2
+  return kept.join('\n').replace(/\n{3,}/g, '\n\n').trim();
+}
+
 export function AgentChat({ agentName, initialMessage, placeholder, started = false, onStreamingChange, onMessagesChange }: AgentChatProps = {}) {
   const { agents, defaultAgent } =
     usePluginClientConfig<AgentsClientConfig>('agents');
@@ -172,7 +242,7 @@ export function AgentChat({ agentName, initialMessage, placeholder, started = fa
               </div>
               <div className={`max-w-[85%] rounded-lg px-3 py-2 text-sm ${isUser ? 'bg-[#FF3621]/10 text-[#0B2026]' : 'bg-[#EEEDE9] text-[#0B2026]'}`}>
                 <div className="whitespace-pre-wrap leading-relaxed">
-                  {m.content || (isStreaming && m.id === pendingAssistantId ? (
+                  {(m.content ? cleanContent(m.content) : '') || (isStreaming && m.id === pendingAssistantId ? (
                     <span className="flex items-center gap-1 text-muted-foreground">
                       <Loader2 className="h-3 w-3 animate-spin" /> Thinking…
                     </span>
