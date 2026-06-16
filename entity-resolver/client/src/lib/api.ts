@@ -17,7 +17,7 @@ export interface DecisionLogEntry {
   raw_row_id: number | null;
   cluster_id: string | null;
   facility_name: string | null;
-  outcome: 'verified' | 'corrected' | 'partial' | 'deferred';
+  outcome: 'verified' | 'corrected' | 'partial' | 'deferred' | 'merged';
   confidence: number | null;
   reasoning: string;
   agents_consulted: string[] | null;
@@ -31,6 +31,7 @@ export interface DecisionLogEntry {
   }> | null;
   human_notes: string | null;
   agent_scores?: Array<{ agent: string; score: number; rationale: string }> | null;
+  merge_into_row_id?: number | null;
   decided_at: string;
 }
 
@@ -165,7 +166,7 @@ export interface PromotePayload {
   task_id: number;
   raw_row_id: number;
   facility_name?: string | null;
-  outcome: 'verified' | 'corrected' | 'partial' | 'deferred';
+  outcome: 'verified' | 'corrected' | 'partial' | 'deferred' | 'merged';
   confidence?: number | null;
   reasoning: string;
   agents_consulted?: string[] | null;
@@ -184,6 +185,35 @@ export interface PromoteResult {
 export const promoteApi = {
   promote: (payload: PromotePayload) =>
     req<PromoteResult>('/api/promote', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }),
+};
+
+// ── Merge ─────────────────────────────────────────────────────────────────────
+
+export interface MergePayload {
+  task_id: number;
+  raw_row_id: number;
+  merge_into_row_id: number;
+  facility_name?: string | null;
+  reasoning: string;
+  confidence?: number | null;
+  agents_consulted?: string[] | null;
+  human_notes?: string | null;
+  agent_scores?: Array<{ agent: string; score: number; rationale: string }> | null;
+}
+
+export interface MergeResult {
+  resolved_id: number;
+  task_id: number;
+  outcome: 'merged';
+  merge_into_row_id: number;
+}
+
+export const mergeApi = {
+  merge: (payload: MergePayload) =>
+    req<MergeResult>('/api/merge', {
       method: 'POST',
       body: JSON.stringify(payload),
     }),

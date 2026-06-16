@@ -18,7 +18,7 @@ import {
   X,
   Check,
 } from 'lucide-react';
-import { clustersApi, tasksApi, promoteApi, type FacilityRecord, type ResolutionTask, type DecisionLogEntry } from '../lib/api';
+import { clustersApi, tasksApi, promoteApi, mergeApi, type FacilityRecord, type ResolutionTask, type DecisionLogEntry } from '../lib/api';
 import { AgentChat } from './agents/AgentChat';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -40,12 +40,14 @@ interface AgentScore {
 }
 
 interface PromotionProposal {
-  outcome: 'verified' | 'corrected' | 'partial' | 'deferred';
+  outcome: 'verified' | 'corrected' | 'partial' | 'deferred' | 'merged';
   confidence: number;
   reasoning: string;
   agents_consulted: string[];
   fields: FieldProposal[];
   agent_scores?: AgentScore[];
+  /** Set by duplicate-detector when a definite/likely duplicate is found. */
+  merge_into_row_id?: number | null;
 }
 
 // Per-field reviewer decision: 'accept' keeps the proposed value, 'edit' uses overrideValue
@@ -414,11 +416,10 @@ function ChatPane({
             : <ChevronUp   className="h-3.5 w-3.5 text-muted-foreground" />
         )}
       </button>
-      {!collapsed && (
-        <div className="flex-1 min-h-0 overflow-hidden">
-          {children}
-        </div>
-      )}
+      {/* Keep children mounted always — hiding with CSS preserves AgentChat state */}
+      <div className={`flex-1 min-h-0 overflow-hidden ${collapsed ? 'hidden' : ''}`}>
+        {children}
+      </div>
     </div>
   );
 }
@@ -449,11 +450,9 @@ function ProposalPane({
           : <ChevronUp   className="h-3.5 w-3.5 text-muted-foreground" />
         }
       </button>
-      {!collapsed && (
-        <div className="px-4 pt-3 pb-3 space-y-3">
-          {children}
-        </div>
-      )}
+      <div className={`px-4 pt-3 pb-3 space-y-3 ${collapsed ? 'hidden' : ''}`}>
+        {children}
+      </div>
     </div>
   );
 }
@@ -659,7 +658,7 @@ export function ResolvePage() {
 
       // Determine final outcome — if reviewer edited any field, upgrade to 'corrected'
       const anyHumanEdit = Object.values(decisions).some((d) => d.action === 'edit');
-      const finalOutcome: 'verified' | 'corrected' | 'partial' | 'deferred' =
+      const finalOutcome: 'verified' | 'corrected' | 'partial' | 'deferred' | 'merged' =
         anyHumanEdit && proposal.outcome === 'verified' ? 'corrected' : proposal.outcome;
 
       const result = await promoteApi.promote({
@@ -700,6 +699,34 @@ export function ResolvePage() {
         resolved_fields: {},
       });
       setPromoted({ outcome: 'deferred', resolved_id: result.resolved_id });
+    } catch (e) {
+      setPromoteError(String(e));
+    } finally {
+      setPromoting(false);
+    }
+  }
+
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  async function handleMerge(mergeIntoRowId: number) {
+    if (!proposal) return;
+    setPromoting(true);
+    setPromoteError(null);
+    try {
+      const activeTask = await ensureTask();
+      if (!activeTask) { setPromoting(false); return; }
+
+      const result = await mergeApi.merge({
+        task_id: activeTask.id,
+        raw_row_id: activeTask.raw_row_id,
+        merge_into_row_id: mergeIntoRowId,
+        facility_name: activeTask.facility_name ?? records[0]?.name ?? null,
+        reasoning: proposal.reasoning || `Merged into row ${mergeIntoRowId} — definite duplicate detected by duplicate-detector.`,
+        confidence: proposal.confidence ?? null,
+        agents_consulted: proposal.agents_consulted ?? null,
+        human_notes: humanNotes.trim() || null,
+        agent_scores: proposal.agent_scores ?? null,
+      });
+      setPromoted({ outcome: 'merged', resolved_id: result.resolved_id });
     } catch (e) {
       setPromoteError(String(e));
     } finally {
@@ -922,6 +949,41 @@ export function ResolvePage() {
                   {promoteError && (
                     <p className="text-xs text-red-600">{promoteError}</p>
                   )}
+                  {/* ── Merge action — shown when duplicate-detector flagged a definite/likely duplicate ── */}
+                  {proposal.merge_into_row_id != null ? (
+                    <div className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2.5 space-y-2">
+                      <div className="flex items-start gap-2">
+                        <X className="h-4 w-4 text-amber-600 mt-0.5 flex-shrink-0" />
+                        <p className="text-xs font-semibold text-amber-800">
+                          Duplicate detected — merge into row {proposal.merge_into_row_id}
+                        </p>
+                      </div>
+                      <p className="text-xs text-amber-700 leading-relaxed">
+                        The supervisor identified this record as a duplicate of raw row{' '}
+                        <span className="font-mono font-semibold">{proposal.merge_into_row_id}</span>.
+                        Confirm the merge to mark this record as resolved and link it to the canonical row,
+                        or override and promote/defer manually.
+                      </p>
+                      <div className="flex gap-2 pt-0.5">
+                        <button
+                          onClick={() => void handleMerge(proposal.merge_into_row_id!)}
+                          disabled={promoting || agentStreaming}
+                          className="flex flex-1 items-center justify-center gap-1.5 rounded-md bg-amber-600 px-4 py-2 text-xs font-semibold text-white hover:bg-amber-700 disabled:opacity-50 transition-colors"
+                        >
+                          {promoting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Check className="h-3.5 w-3.5" />}
+                          Confirm Merge
+                        </button>
+                        <button
+                          onClick={() => void handleDefer()}
+                          disabled={promoting || agentStreaming}
+                          className="flex flex-1 items-center justify-center gap-1.5 rounded-md border border-border bg-white px-4 py-2 text-xs font-semibold text-[#0B2026] hover:bg-muted/40 disabled:opacity-50 transition-colors"
+                        >
+                          {promoting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Clock className="h-3.5 w-3.5" />}
+                          Defer Instead
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
                   <div className="flex gap-2 pb-1">
                     <button
                       onClick={() => void handleApprove()}
@@ -940,6 +1002,7 @@ export function ResolvePage() {
                       Defer
                     </button>
                   </div>
+                  )}
                 </ProposalPane>
               )}
 
@@ -967,13 +1030,21 @@ export function ResolvePage() {
                 <div className={`flex-shrink-0 border-t px-4 py-3 flex items-center justify-between ${
                   promoted.outcome === 'deferred'
                     ? 'border-yellow-200 bg-yellow-50'
+                    : promoted.outcome === 'merged'
+                    ? 'border-amber-200 bg-amber-50'
                     : 'border-green-200 bg-green-50'
                 }`}>
                   <div className="flex items-center gap-2">
-                    <CheckCircle2 className={`h-4 w-4 ${promoted.outcome === 'deferred' ? 'text-yellow-600' : 'text-green-600'}`} />
+                    <CheckCircle2 className={`h-4 w-4 ${
+                      promoted.outcome === 'deferred' ? 'text-yellow-600'
+                      : promoted.outcome === 'merged' ? 'text-amber-600'
+                      : 'text-green-600'
+                    }`} />
                     <span className="text-xs font-semibold text-[#0B2026]">
                       {promoted.outcome === 'deferred'
                         ? 'Deferred for later review'
+                        : promoted.outcome === 'merged'
+                        ? `Merged — duplicate recorded (ID ${promoted.resolved_id})`
                         : `Promoted to resolved (ID ${promoted.resolved_id})`}
                     </span>
                   </div>
