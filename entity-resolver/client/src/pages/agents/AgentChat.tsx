@@ -307,9 +307,13 @@ export function AgentChat({ agentName, initialMessage, placeholder, started = fa
               <div className={`max-w-[85%] rounded-lg px-3 py-2 text-sm ${isUser ? 'bg-[#FF3621]/10 text-[#0B2026]' : 'bg-[#EEEDE9] text-[#0B2026]'}`}>
                 <div className="whitespace-pre-wrap leading-relaxed">
                   {(m.content ? cleanContent(m.content) : '') || (isStreaming && m.id === pendingAssistantId ? (
-                    <span className="flex items-center gap-1 text-muted-foreground">
-                      <Loader2 className="h-3 w-3 animate-spin" /> Preparing summary…
-                    </span>
+                    // Only show "Preparing summary…" once agents have started firing.
+                    // Before that, the activity feed rows below the bubble handle the loading state.
+                    messages.some((x) => x.role === 'tool') ? (
+                      <span className="flex items-center gap-1 text-muted-foreground">
+                        <Loader2 className="h-3 w-3 animate-spin" /> Preparing summary…
+                      </span>
+                    ) : null
                   ) : '')}
                 </div>
               </div>
