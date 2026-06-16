@@ -101,37 +101,57 @@ function findJsonEnd(s: string, start: number): number {
 }
 
 // ── Trust Score Panel ─────────────────────────────────────────────────────────
+// Each agent score is 0–20. The total trust score is the sum (0–100), matching
+// what the supervisor prints in chat ("Score: X/100 — <label>").
 
 function ScoreBar({ score }: { score: number }) {
+  // score is 0–20; scale to % for the bar width
+  const pct = (score / 20) * 100;
   const color =
-    score >= 80 ? 'bg-green-500' :
-    score >= 60 ? 'bg-amber-400' :
-    'bg-red-500';
+    score >= 17 ? 'bg-green-500' :  // Strong  (85–100 equivalent)
+    score >= 13 ? 'bg-green-400' :  // Good    (65–84)
+    score >= 9  ? 'bg-amber-400' :  // Moderate(45–64)
+    score >= 5  ? 'bg-orange-400' : // Weak    (25–44)
+    'bg-red-500';                   // Poor    (0–24)
+  const textColor =
+    score >= 13 ? 'text-green-700' :
+    score >= 9  ? 'text-amber-600' :
+    score >= 5  ? 'text-orange-600' :
+    'text-red-600';
   return (
     <div className="flex items-center gap-2">
       <div className="flex-1 h-1.5 rounded-full bg-muted overflow-hidden">
-        <div className={`h-full rounded-full ${color} transition-all`} style={{ width: `${score}%` }} />
+        <div className={`h-full rounded-full ${color} transition-all`} style={{ width: `${pct}%` }} />
       </div>
-      <span className={`text-[10px] font-semibold tabular-nums w-7 text-right ${
-        score >= 80 ? 'text-green-700' : score >= 60 ? 'text-amber-600' : 'text-red-600'
-      }`}>{score}</span>
+      <span className={`text-[10px] font-semibold tabular-nums w-10 text-right ${textColor}`}>
+        {score}/20
+      </span>
     </div>
   );
 }
 
 export function TrustScorePanel({ scores }: { scores: AgentScore[] }) {
-  const avg = Math.round(scores.reduce((s, a) => s + a.score, 0) / scores.length);
-  const avgColor =
-    avg >= 80 ? 'bg-green-100 text-green-800 border-green-200' :
-    avg >= 60 ? 'bg-amber-100 text-amber-800 border-amber-200' :
+  // Total = sum of all sub-scores (0–100), matching the supervisor's "Score: X/100"
+  const total = scores.reduce((s, a) => s + a.score, 0);
+  const label =
+    total >= 85 ? 'Excellent' :
+    total >= 65 ? 'Good' :
+    total >= 45 ? 'Moderate' :
+    total >= 25 ? 'Weak' :
+    'Poor';
+  const totalColor =
+    total >= 85 ? 'bg-green-100 text-green-800 border-green-200' :
+    total >= 65 ? 'bg-green-100 text-green-800 border-green-200' :
+    total >= 45 ? 'bg-amber-100 text-amber-800 border-amber-200' :
+    total >= 25 ? 'bg-orange-100 text-orange-800 border-orange-200' :
     'bg-red-100 text-red-800 border-red-200';
 
   return (
     <div className="rounded-lg border border-border bg-white overflow-hidden">
       <div className="flex items-center justify-between px-4 py-2.5 border-b border-border/60 bg-[#F4F2EE]">
         <span className="text-xs font-semibold text-[#0B2026]">Agent Trust Scores</span>
-        <span className={`rounded-full border px-2 py-0.5 text-[10px] font-semibold ${avgColor}`}>
-          Avg {avg}/100
+        <span className={`rounded-full border px-2 py-0.5 text-[10px] font-semibold ${totalColor}`}>
+          {total}/100 — {label}
         </span>
       </div>
       <div className="px-4 py-3 space-y-2.5">
