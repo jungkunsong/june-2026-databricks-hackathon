@@ -22,7 +22,7 @@ LAKEBASE_DB       = "databricks_postgres"
 LAKEBASE_USER     = "jksong@enrollhere.com"
 LAKEBASE_ENDPOINT = "projects/entity-resolution/branches/production/endpoints/primary"
 DATABRICKS_HOST   = "https://dbc-6806e9e0-845a.cloud.databricks.com"
-SP_APP_ID         = "4b31d812-e085-4472-9efa-c5b6ffef764d"
+SP_APP_ID         = "6e8d68b9-03d8-4bcf-9cdb-b4e60f8c9f36"
 
 TARGET_SCHEMA = "virtue_foundation_dataset"
 
