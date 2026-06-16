@@ -5,22 +5,26 @@ import { z } from 'zod';
  * Source Authority Validator agent.
  *
  * Scores each facility's source_urls array by the authority of the domains it
- * references. The per-facility score is the highest tier weight across all
+ * references. The per-facility score is the highest tier anchor score across all
  * URLs — the best source wins. A single Wikipedia link outweighs ten JustDial
  * entries.
  *
- * Tier classification (derived from the top 50 domains in the dataset, June 2026):
+ * Tier classification (source-authority-validation.md, June 2026):
  *
- *   Tier 1 — Authoritative (weight 5): Government (.gov/.gov.in), WHO, Wikipedia, PubMed
- *   Tier 2 — Professional / Official (weight 4): LinkedIn, facility's own officialWebsite
- *   Tier 3 — Healthcare directories (weight 3): Practo, Lybrate, MedIndia, etc.
- *   Tier 4 — General directories / aggregators (weight 2): JustDial, IndiaMart, Sulekha, etc.
- *   Tier 5 — Social media (weight 1): Facebook, Twitter/X, Instagram, YouTube
- *   Tier 6 — Unknown / irrelevant (weight 0): anything not in the above tiers
+ *   Tier 1 — Authoritative (anchor 20): Government (.gov/.gov.in), WHO, Wikipedia, PubMed
+ *   Tier 2 — Professional / Official (anchor 16): LinkedIn (in.linkedin.com), facility's own officialWebsite
+ *   Tier 3 — Healthcare directories (anchor 12): Practo, Lybrate, MedIndia, etc.
+ *   Tier 4 — General directories / aggregators (anchor 8): JustDial, IndiaMart, Sulekha, etc.
+ *   Tier 5 — Social media (anchor 4): Facebook, Twitter/X, Instagram, YouTube
+ *   Tier 6 — Irrelevant / noise (anchor 0): real-estate portals, unrelated e-commerce
+ *
+ * The listed domains are examples, not an exhaustive allowlist. The agent must
+ * classify unlisted domains by reasoning about their nature. Scores are continuous
+ * 0–20; the tier anchors are calibrated starting points, not hard locks.
  *
  * Data quality flags:
  *   - domain_authority_score = 0  → no credible source URLs
- *   - url_count ≥ 5 AND score ≤ 1 → many URLs but none from a credible source (possible link spam)
+ *   - url_count ≥ 5 AND score ≤ 4 → many URLs but none from a credible source (possible link spam)
  *   - www.proptiger.com present   → systematic pipeline issue; flagged separately
  */
 export const sourceAuthorityValidatorAgent = createAgent({
@@ -28,11 +32,15 @@ export const sourceAuthorityValidatorAgent = createAgent({
   model: 'OpenAI',
   instructions: [
     'You are the Source Authority Validator sub-agent.',
-    'When given facility records, call `score_source_authority` for each record that has a source_urls field.',
-    'After all checks complete, return a structured markdown table sorted by score ascending (worst first),',
-    'and a JSON summary with score distribution and flagged records.',
-    'Flag records with score 0, and records where url_count ≥ 5 but score ≤ 1 as potential link spam.',
-    'Also flag any record whose source_urls contain "proptiger.com" as a systematic pipeline issue.',
+    'When given a facility record, call `score_source_authority` to classify its source_urls.',
+    'The tool returns a tier breakdown for known domains. For any domain marked tier 6 (unknown),',
+    'apply judgment: check TLD (.gov/.ac.in → tier 1), check if it matches officialWebsite (tier 2),',
+    'assess whether it is a healthcare directory (tier 3), general business directory (tier 4),',
+    'social platform (tier 5), or genuinely irrelevant (tier 6). Tier 6 is reserved for actively',
+    'irrelevant domains — an unfamiliar domain that plausibly references the facility is at minimum tier 4.',
+    'Scores are continuous 0–20; tier anchors (20,16,12,8,4,0) are starting points, not hard locks.',
+    'Return ONLY a compact JSON object:',
+    '{"agent":"source-authority-validator","domain_authority_score":<0-20>,"score_label":"<label>","url_count":<n>,"best_domain":"<domain>","best_tier":<1-6>,"flags":<array or null>,"unlisted_domains":<array of {domain,assigned_score,rationale} or null>}',
   ].join(' '),
   tools: {
     score_source_authority: tool({
@@ -160,7 +168,7 @@ export const sourceAuthorityValidatorAgent = createAgent({
             ['who.int', 'en.wikipedia.org', 'pmc.ncbi.nlm.nih.gov', 'pubmed.ncbi.nlm.nih.gov'].includes(domain)
           ) {
             tier = 1;
-            weight = 5;
+            weight = 20;
             tierLabel = 'Authoritative (gov/WHO/Wikipedia/PubMed)';
           }
           // Tier 2 — Professional / Official
@@ -171,32 +179,32 @@ export const sourceAuthorityValidatorAgent = createAgent({
             (officialDomain && domain.endsWith(officialDomain))
           ) {
             tier = 2;
-            weight = 4;
+            weight = 16;
             tierLabel = 'Professional / Official (LinkedIn or own website)';
           }
           // Tier 3 — Healthcare directories
           else if (TIER3_HEALTHCARE.has(domain)) {
             tier = 3;
-            weight = 3;
+            weight = 12;
             tierLabel = 'Healthcare directory';
           }
           // Tier 4 — General directories / aggregators
           else if (TIER4_GENERAL.has(domain)) {
             tier = 4;
-            weight = 2;
+            weight = 8;
             tierLabel = 'General directory / aggregator';
           }
           // Tier 5 — Social media
           else if (TIER5_SOCIAL.has(domain)) {
             tier = 5;
-            weight = 1;
+            weight = 4;
             tierLabel = 'Social media';
           }
-          // Tier 6 — Unknown
+          // Tier 6 — Unknown / irrelevant (agent will reclassify unlisted domains)
           else {
             tier = 6;
             weight = 0;
-            tierLabel = 'Unknown / irrelevant';
+            tierLabel = 'Unknown — agent must classify';
           }
 
           urlDetails.push({ url, domain, tier, weight, tier_label: tierLabel });
@@ -213,7 +221,7 @@ export const sourceAuthorityValidatorAgent = createAgent({
         if (domainAuthorityScore === 0 && urlCount > 0) {
           flags.push('No credible source URLs — all domains are unknown or irrelevant.');
         }
-        if (urlCount >= 5 && domainAuthorityScore <= 1) {
+        if (urlCount >= 5 && domainAuthorityScore <= 4) {
           flags.push(
             `Link spam suspected: ${urlCount} URLs but highest authority score is only ${domainAuthorityScore}.`,
           );
@@ -226,15 +234,15 @@ export const sourceAuthorityValidatorAgent = createAgent({
 
         // ── Score label ─────────────────────────────────────────────────────
         const scoreLabel =
-          domainAuthorityScore === 5
+          domainAuthorityScore >= 17
             ? 'Authoritative (gov/WHO/Wikipedia/PubMed)'
-            : domainAuthorityScore === 4
+            : domainAuthorityScore >= 13
               ? 'Professional / Official (LinkedIn or own website)'
-              : domainAuthorityScore === 3
+              : domainAuthorityScore >= 9
                 ? 'Healthcare directory'
-                : domainAuthorityScore === 2
+                : domainAuthorityScore >= 5
                   ? 'General directory / aggregator'
-                  : domainAuthorityScore === 1
+                  : domainAuthorityScore >= 1
                     ? 'Social media only'
                     : 'Unknown / no credible source';
 

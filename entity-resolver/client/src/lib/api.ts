@@ -30,6 +30,7 @@ export interface DecisionLogEntry {
     supervisor_reasoning?: string;
   }> | null;
   human_notes: string | null;
+  agent_scores?: Array<{ agent: string; score: number; rationale: string }> | null;
   decided_at: string;
 }
 
@@ -170,6 +171,7 @@ export interface PromotePayload {
   agents_consulted?: string[] | null;
   verifications?: unknown[] | null;
   human_notes?: string | null;
+  agent_scores?: Array<{ agent: string; score: number; rationale: string }> | null;
   resolved_fields?: Record<string, unknown>;
 }
 

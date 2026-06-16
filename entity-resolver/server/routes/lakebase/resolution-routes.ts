@@ -184,6 +184,7 @@ export function setupResolutionRoutes(lb: LakebaseHandle, srv: ServerHandle) {
           agents_consulted,
           verifications,
           human_notes,
+          agent_scores,
           resolved_fields = {},
         } = req.body as {
           task_id: number;
@@ -195,6 +196,7 @@ export function setupResolutionRoutes(lb: LakebaseHandle, srv: ServerHandle) {
           agents_consulted?: string[];
           verifications?: unknown[];
           human_notes?: string;
+          agent_scores?: Array<{ agent: string; score: number; rationale: string }> | null;
           resolved_fields?: Record<string, unknown>;
         };
 
@@ -259,14 +261,15 @@ export function setupResolutionRoutes(lb: LakebaseHandle, srv: ServerHandle) {
           INSERT INTO app.decision_log (
             task_id, resolved_id, raw_row_id, facility_name,
             outcome, confidence, reasoning,
-            agents_consulted, verifications, human_notes
-          ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8::text[], $9::jsonb, $10)
+            agents_consulted, verifications, human_notes, agent_scores
+          ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8::text[], $9::jsonb, $10, $11::jsonb)
         `, [
           taskIdNum, resolved_id, rawRowIdNum, facility_name ?? null,
           outcome, confidenceNum, reasoning,
           agents_consulted && agents_consulted.length > 0 ? agents_consulted : null,
           verifications && verifications.length > 0 ? JSON.stringify(verifications) : null,
           human_notes ?? null,
+          agent_scores && agent_scores.length > 0 ? JSON.stringify(agent_scores) : null,
         ]);
 
         // ── 3. Mark task resolved ─────────────────────────────────────────

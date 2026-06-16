@@ -33,12 +33,19 @@ interface FieldProposal {
   note: string;
 }
 
+interface AgentScore {
+  agent: string;
+  score: number;
+  rationale: string;
+}
+
 interface PromotionProposal {
   outcome: 'verified' | 'corrected' | 'partial' | 'deferred';
   confidence: number;
   reasoning: string;
   agents_consulted: string[];
   fields: FieldProposal[];
+  agent_scores?: AgentScore[];
 }
 
 // Per-field reviewer decision: 'accept' keeps the proposed value, 'edit' uses overrideValue
@@ -87,6 +94,57 @@ function findJsonEnd(s: string, start: number): number {
     else if (c === '}') { depth--; if (depth === 0) return i; }
   }
   return -1;
+}
+
+// ── Trust Score Panel ─────────────────────────────────────────────────────────
+
+function ScoreBar({ score }: { score: number }) {
+  const color =
+    score >= 80 ? 'bg-green-500' :
+    score >= 60 ? 'bg-amber-400' :
+    'bg-red-500';
+  return (
+    <div className="flex items-center gap-2">
+      <div className="flex-1 h-1.5 rounded-full bg-muted overflow-hidden">
+        <div className={`h-full rounded-full ${color} transition-all`} style={{ width: `${score}%` }} />
+      </div>
+      <span className={`text-[10px] font-semibold tabular-nums w-7 text-right ${
+        score >= 80 ? 'text-green-700' : score >= 60 ? 'text-amber-600' : 'text-red-600'
+      }`}>{score}</span>
+    </div>
+  );
+}
+
+export function TrustScorePanel({ scores }: { scores: AgentScore[] }) {
+  const avg = Math.round(scores.reduce((s, a) => s + a.score, 0) / scores.length);
+  const avgColor =
+    avg >= 80 ? 'bg-green-100 text-green-800 border-green-200' :
+    avg >= 60 ? 'bg-amber-100 text-amber-800 border-amber-200' :
+    'bg-red-100 text-red-800 border-red-200';
+
+  return (
+    <div className="rounded-lg border border-border bg-white overflow-hidden">
+      <div className="flex items-center justify-between px-4 py-2.5 border-b border-border/60 bg-[#F4F2EE]">
+        <span className="text-xs font-semibold text-[#0B2026]">Agent Trust Scores</span>
+        <span className={`rounded-full border px-2 py-0.5 text-[10px] font-semibold ${avgColor}`}>
+          Avg {avg}/100
+        </span>
+      </div>
+      <div className="px-4 py-3 space-y-2.5">
+        {scores.map((s) => (
+          <div key={s.agent}>
+            <div className="flex items-center justify-between mb-0.5">
+              <span className="text-[11px] font-medium text-[#0B2026]">{s.agent}</span>
+            </div>
+            <ScoreBar score={s.score} />
+            {s.rationale && (
+              <p className="text-[10px] text-muted-foreground mt-0.5 leading-snug">{s.rationale}</p>
+            )}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
 }
 
 function FieldRow({ label, value }: { label: string; value: string | number | null | undefined }) {
@@ -426,6 +484,9 @@ export function ResolvePage() {
   // Derived proposal — re-parsed whenever messages change
   const [proposal, setProposal] = useState<PromotionProposal | null>(null);
 
+  // Frozen trust scores — set once when proposal first arrives, never overwritten until re-run
+  const [frozenScores, setFrozenScores] = useState<AgentScore[] | null>(null);
+
   // Per-field reviewer decisions (keyed by field name)
   const [decisions, setDecisions] = useState<Record<string, FieldDecision>>({});
 
@@ -456,6 +517,10 @@ export function ResolvePage() {
     const parsed = parseProposal(agentMessages);
     if (parsed) {
       setProposal(parsed);
+      // Freeze trust scores on first parse — stable until user re-runs
+      if (parsed.agent_scores && parsed.agent_scores.length > 0) {
+        setFrozenScores((prev) => prev ?? parsed.agent_scores!);
+      }
       // Seed decisions with 'accept' for any new fields not yet in state
       setDecisions((prev) => {
         const next = { ...prev };
@@ -533,6 +598,7 @@ export function ResolvePage() {
   async function handleStartVerification() {
     if (!clusterId) return;
     setStarting(true);
+    setFrozenScores(null); // reset scores so new run can freeze fresh ones
     try {
       const created = await tasksApi.create(clusterId);
       setTask(created);
@@ -607,6 +673,7 @@ export function ResolvePage() {
         verifications,
         human_notes: humanNotes.trim() || null,
         resolved_fields,
+        agent_scores: frozenScores ?? proposal.agent_scores ?? null,
       });
       setPromoted({ outcome: finalOutcome, resolved_id: result.resolved_id });
     } catch (e) {
@@ -704,6 +771,11 @@ export function ResolvePage() {
             <div className="rounded-md border border-dashed border-border bg-white py-10 text-center text-sm text-muted-foreground">
               No records found for this cluster.
             </div>
+          )}
+
+          {/* Trust Score Panel — shown once scores are frozen, stable across re-renders */}
+          {frozenScores && frozenScores.length > 0 && (
+            <TrustScorePanel scores={frozenScores} />
           )}
 
           {records.map((rec, i) => (

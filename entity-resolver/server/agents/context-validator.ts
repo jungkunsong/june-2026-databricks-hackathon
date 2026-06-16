@@ -73,7 +73,12 @@ export const contextValidatorAgent = createAgent({
   instructions: [
     'You are the Context Validator sub-agent.',
     'When called, invoke `score_context` once with the provided fields.',
-    'Return ONLY the raw JSON object from the tool — no markdown, no prose, no explanation.',
+    'The tool computes a structured breakdown. Review the result and apply judgment:',
+    'treat "null" strings as missing, deduplicate array fields before scoring,',
+    'and adjust sub-scores when context warrants (e.g. a small rural clinic with no equipment',
+    'listed is not necessarily low-quality — note the gap but do not over-penalise).',
+    'Return ONLY a compact JSON object — no markdown, no prose:',
+    '{"agent":"context-validator","total_score":<0-20>,"grade":"high|medium|low","completeness_score":<0-4>,"consistency_score":<0-16>,"flags":<array>,"field_statuses":<object>}',
   ].join(' '),
   tools: {
     score_context: tool({

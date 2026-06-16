@@ -71,6 +71,7 @@ const APP_TABLES_SQL = [
     agents_consulted  TEXT[],
     verifications     JSONB,
     human_notes       TEXT,
+    agent_scores      JSONB,
     decided_at        TIMESTAMPTZ NOT NULL DEFAULT NOW()
   )`,
 
@@ -369,6 +370,16 @@ const MIGRATION_SQL = [
       WHERE table_schema='app' AND table_name='decision_log' AND column_name='decided_at'
     ) THEN
       DROP TABLE IF EXISTS app.decision_log CASCADE;
+    END IF;
+  END $$`,
+
+  // decision_log: add agent_scores column if missing
+  `DO $$ BEGIN
+    IF NOT EXISTS (
+      SELECT 1 FROM information_schema.columns
+      WHERE table_schema='app' AND table_name='decision_log' AND column_name='agent_scores'
+    ) THEN
+      ALTER TABLE app.decision_log ADD COLUMN agent_scores JSONB;
     END IF;
   END $$`,
 ];

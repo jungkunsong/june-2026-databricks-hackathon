@@ -101,7 +101,8 @@ function DecisionRow({ entry }: { entry: DecisionLogEntry }) {
   const hasDetail = !!(
     entry.reasoning ||
     (entry.verifications && entry.verifications.length > 0) ||
-    entry.human_notes
+    entry.human_notes ||
+    (entry.agent_scores && entry.agent_scores.length > 0)
   );
 
   return (
@@ -217,6 +218,33 @@ function DecisionRow({ entry }: { entry: DecisionLogEntry }) {
                   <p className="text-xs text-muted-foreground mt-1 leading-relaxed">
                     {entry.human_notes}
                   </p>
+                </div>
+              )}
+
+              {/* Agent trust scores */}
+              {entry.agent_scores && entry.agent_scores.length > 0 && (
+                <div>
+                  <span className="text-xs font-semibold text-[#0B2026]">Agent trust scores</span>
+                  <div className="mt-2 space-y-2">
+                    {entry.agent_scores.map((s) => {
+                      const color = s.score >= 80 ? 'bg-green-500' : s.score >= 60 ? 'bg-amber-400' : 'bg-red-500';
+                      const textColor = s.score >= 80 ? 'text-green-700' : s.score >= 60 ? 'text-amber-600' : 'text-red-600';
+                      return (
+                        <div key={s.agent}>
+                          <div className="flex items-center gap-2 mb-0.5">
+                            <span className="text-[11px] font-medium text-[#0B2026] w-36 truncate">{s.agent}</span>
+                            <div className="flex-1 h-1.5 rounded-full bg-muted overflow-hidden">
+                              <div className={`h-full rounded-full ${color}`} style={{ width: `${s.score}%` }} />
+                            </div>
+                            <span className={`text-[10px] font-semibold tabular-nums w-7 text-right ${textColor}`}>{s.score}</span>
+                          </div>
+                          {s.rationale && (
+                            <p className="text-[10px] text-muted-foreground leading-snug pl-[9.5rem]">{s.rationale}</p>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
                 </div>
               )}
 
