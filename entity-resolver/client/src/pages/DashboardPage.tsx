@@ -225,7 +225,7 @@ export function DashboardPage() {
               { icon: Sparkles,    color: 'text-blue-600 bg-blue-50',    step: '2', title: 'Run AI verification', body: 'The Supervisor agent dispatches sub-agents to verify contact, location, and clinical data.' },
               { icon: GitBranch,   color: 'text-purple-600 bg-purple-50', step: '3', title: 'Review the proposal', body: 'Inspect field-by-field findings, edit any values, and add reviewer notes.' },
               { icon: ShieldCheck, color: 'text-green-600 bg-green-50',  step: '4', title: 'Approve or defer', body: 'Approve to write a clean record to the resolved dataset, or defer for later.' },
-            ].map(({ icon: Icon, color, step, title, body }) => (
+            ].map(({ color, step, title, body }) => (
               <li key={step} className="flex gap-3">
                 <div className={`mt-0.5 flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-full text-xs font-bold ${color}`}>
                   {step}
