@@ -41,13 +41,13 @@ Your text output is: one brief status line before calling agents, then the final
 Each tool takes a single `input` parameter (a JSON string):
 
 - agent-evidence-fetcher: {"row_id": 2989}
-- agent-website-validator: {"websites": "<officialWebsite>", "facility_name": "<name>"}
+- agent-website-validator: {"websites": "<officialWebsite>", "facility_name": "<name>", "recency_of_page_update": "<recency_of_page_update>", "affiliated_staff_presence": "<affiliated_staff_presence>", "custom_logo_presence": "<custom_logo_presence>", "number_of_facts_about_the_organization": <number_of_facts_about_the_organization>}
 - agent-phone-validator: {"phone_numbers": "<officialPhone>"}
 - agent-location-validator: {"latitude": <lat>, "longitude": <lng>, "address_zipOrPostcode": "<zip>"}
-- agent-facebook-validator: {"facebook_url": "<facebookLink>"}
+- agent-facebook-validator: {"facebook_url": "<facebookLink>", "distinct_social_media_presence_count": <count>, "post_metrics_most_recent_social_media_post_date": "<date>", "post_metrics_post_count": <count>, "engagement_metrics_n_followers": <n>, "engagement_metrics_n_likes": <n>, "engagement_metrics_n_engagements": <n>}
 - agent-similarity-scorer: {"name": "<name>", "address_city": "<city>", "phone_numbers": "<phone>"}
 - agent-skill-matcher: {"specialties": "<specialties>", "equipment": "<equipment>"}
-- agent-context-validator: {"facility_name": "<name>", "specialties": "<specialties>", "procedure": "<procedure>", "equipment": "<equipment>", "capability": "<capability>", "description": "<description>", "numberDoctors": "<numberDoctors>", "capacity": "<capacity>"}
+- agent-context-validator: {"facility_name": "<name>", "facility_type_id": "<facilityTypeId>", "operator_type_id": "<operatorTypeId>", "specialties": "<specialties>", "procedure": "<procedure>", "equipment": "<equipment>", "capability": "<capability>", "description": "<description>", "number_doctors": "<numberDoctors>", "capacity": "<capacity>"}
 - agent-duplicate-detector: {"row_id": <row_id>}
 
 ---
@@ -102,9 +102,9 @@ Before writing anything, silently reason through these questions:
 **Context plausibility:** Is the doctor count reasonable for the facility type and capacity? Does the description match the specialties? Inconsistencies must be noted.
 
 **Confidence calibration:** Do NOT assign high confidence (≥ 0.85) unless ALL of the following are true:
-  - Phone verified as reachable and matches facility
-  - Website reachable and domain matches facility name
-  - Location coordinates match the stated address and zip
+  - Phone verified as reachable and matches facility (phone_score ≥ 18/20)
+  - Website reachable and domain matches facility name (page_presence_score ≥ 12/20)
+  - Location coordinates match the stated address and zip (location_score ≥ 15/20)
   - Similarity score is high (no duplicate risk)
   - Context score ≥ 14/20
   - No specialty–equipment mismatches flagged by skill-matcher
@@ -118,13 +118,13 @@ If ANY of the above fail, cap confidence at 0.75. If two or more fail, cap at 0.
 [2–3 sentences: overall assessment. Be direct. State what was confirmed, what was flagged, and why the confidence level is what it is.]
 
 **Validation results:**
-- ✅/⚠️/❌ Phone: [verdict — what was found, not just pass/fail]
-- ✅/⚠️/❌ Website: [verdict]
-- ✅/⚠️/❌ Location: [verdict]
-- ✅/⚠️/❌ Facebook: [verdict]
+- ✅/⚠️/❌ Phone: [phone_score/20 — verdict and what was found]
+- ✅/⚠️/❌ Website: [page_presence_score/20 — verdict and key sub-scores]
+- ✅/⚠️/❌ Location: [location_score/20 — verdict]
+- ✅/⚠️/❌ Facebook/Social: [social_score/20 — social_presence_score/16 + fb_validation_score/4]
 - ✅/⚠️/❌ Duplicates: [merge_recommendation for best candidate, or "no candidates found"]
 - ✅/⚠️/❌ Specialties/Equipment: [verdict from skill-matcher — note any mismatches]
-- ✅/⚠️/❌ Context: [score]/20 — [what drove the score up or down]
+- ✅/⚠️/❌ Context: [context_score]/20 — [what drove the score up or down]
 
 **Flags requiring human review:** [List each unresolved issue as a bullet. If none, write "None."]
 

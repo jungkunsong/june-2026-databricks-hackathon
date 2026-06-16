@@ -5,253 +5,287 @@ import { emitAgentStart, emitAgentDone, getActiveRunId } from '../progress-store
 /**
  * Context Validator agent.
  *
- * Scores each facility's contextual richness and internal consistency across
- * seven fields — specialties, procedure, equipment, capability, description,
- * numberDoctors, and capacity — producing a context score (0–20).
+ * Backs the `context-validator` markdown agent. Scores each facility's
+ * contextual fields across six sub-scores, producing a context_score (0–20)
+ * per context-validation.md.
  *
- * Scoring breakdown (derived from context-validation.md, June 2026):
+ * Sub-scores:
+ *   1. Operational field coverage     (0–4)  — specialties, procedure, equipment, capability
+ *   2. Description–name corroboration (0–4)  — anchor word from name present in description
+ *   3. Specialty–description consistency (0–4) — description doesn't contradict specialties
+ *   4. Numeric field presence         (0–4)  — numberDoctors and capacity populated
+ *   5. Doctor-to-capacity ratio       (0–2)  — numberDoctors ≤ capacity
+ *   6. Classification validity        (0–6)  — type-aware bounds (6a) + vocab compliance (6b+6c)
  *
- *  Completeness (0–10):
- *    specialties   present & non-empty → +2
- *    procedure     present & non-empty → +2
- *    equipment     present & non-empty → +1
- *    capability    present & non-empty → +1
- *    description   present & non-empty → +2
- *    numberDoctors present & numeric   → +1
- *    capacity      present & numeric   → +1
- *
- *  Consistency (0–10):
- *    specialties ∩ procedure overlap ≥ 1 term          → +2 (coherent scope)
- *    equipment plausible for specialties                → +2
- *    description mentions ≥ 1 specialty term            → +2
- *    numberDoctors in plausible range (1–5000)          → +2
- *    capacity in plausible range (5–10000)              → +2
- *
- *  Penalties:
- *    specialties has duplicates                         → −1
- *    procedure is empty array []                        → −1
- *    equipment is empty array []                        → −1
- *    description < 20 chars (stub)                      → −1
+ * Score labels: 17–20 Strong | 12–16 Good | 7–11 Moderate | 3–6 Weak | 0–2 Poor
  */
-
-type ContextResult = {
-  agent: 'context-validator';
-  completeness_score: number;
-  consistency_score: number;
-  total_score: number;
-  max_score: number;
-  grade: 'high' | 'medium' | 'low';
-  flags: string[];
-  field_statuses: Record<string, 'present' | 'empty' | 'missing'>;
-};
-
-function parseArray(val: unknown): string[] {
-  if (!val) return [];
-  if (Array.isArray(val)) return val.map(String).filter(Boolean);
-  if (typeof val === 'string') {
-    const trimmed = val.trim();
-    if (trimmed.startsWith('[')) {
-      try { return JSON.parse(trimmed); } catch { /* fall through */ }
-    }
-    // comma-separated
-    return trimmed.split(',').map(s => s.trim()).filter(Boolean);
-  }
-  return [];
-}
-
-function fieldStatus(val: unknown): 'present' | 'empty' | 'missing' {
-  if (val == null || val === '' || val === 'null') return 'missing';
-  const arr = parseArray(val);
-  if (Array.isArray(val) || (typeof val === 'string' && val.trim().startsWith('['))) {
-    return arr.length > 0 ? 'present' : 'empty';
-  }
-  return 'present';
-}
-
 export const contextValidatorAgent = createAgent({
   name: 'context-validator',
   model: 'OpenAI',
   instructions: [
     'You are the Context Validator sub-agent.',
     'When called, invoke `score_context` once with the provided fields.',
-    'The tool computes a structured breakdown. Review the result and apply judgment:',
-    'treat "null" strings as missing, deduplicate array fields before scoring,',
-    'and adjust sub-scores when context warrants (e.g. a small rural clinic with no equipment',
-    'listed is not necessarily low-quality — note the gap but do not over-penalise).',
+    'The tool computes all six sub-scores per context-validation.md. Review the result and apply judgment:',
+    '  - Treat "null" strings as missing data (pipeline artifact, not a facility quality failure).',
+    '  - Extend the 15-keyword specialty list if a clearly valid specialty is present but unlisted.',
+    '  - Do not penalise a high doctor-to-capacity ratio if the facility type makes it plausible (e.g. outpatient clinic).',
+    '  - Flag boilerplate descriptions that appear identical across multiple chain facilities.',
+    '  - For new facilityTypeId/operatorTypeId values not in the canonical set, evaluate on merit rather than auto-scoring 1.',
     'Return ONLY a compact JSON object — no markdown, no prose:',
-    '{"agent":"context-validator","total_score":<0-20>,"grade":"high|medium|low","completeness_score":<0-4>,"consistency_score":<0-16>,"flags":<array>,"field_statuses":<object>}',
+    '{"agent":"context-validator","context_score":<0-20>,"grade":"Strong|Good|Moderate|Weak|Poor","operational_coverage_score":<0-4>,"description_name_score":<0-4>,"specialty_consistency_score":<0-4>,"numeric_presence_score":<0-4>,"ratio_score":<0-2>,"classification_score":<0-6>,"flags":<array>}',
   ].join(' '),
   tools: {
     score_context: tool({
-      description: 'Scores a facility record\'s contextual completeness and internal consistency across specialties, procedure, equipment, capability, description, numberDoctors, and capacity.',
+      description:
+        'Scores a facility record across six sub-scores per context-validation.md, producing a context_score (0–20).',
       schema: z.object({
-        facility_name: z.string().describe('Facility name, used for description overlap check.'),
-        specialties: z.string().nullable().optional().describe('Comma-separated or JSON array of specialties.'),
-        procedure: z.string().nullable().optional().describe('Comma-separated or JSON array of procedures.'),
-        equipment: z.string().nullable().optional().describe('Comma-separated or JSON array of equipment.'),
-        capability: z.string().nullable().optional().describe('Comma-separated or JSON array of capabilities.'),
+        facility_name: z.string().describe('Facility name — used for description anchor-word check.'),
+        facility_type_id: z.string().nullable().optional().describe('facilityTypeId value (e.g. "hospital", "clinic").'),
+        operator_type_id: z.string().nullable().optional().describe('operatorTypeId value (e.g. "private", "public").'),
+        specialties: z.string().nullable().optional().describe('JSON array string or comma-separated specialties.'),
+        procedure: z.string().nullable().optional().describe('JSON array string of procedures.'),
+        equipment: z.string().nullable().optional().describe('JSON array string of equipment.'),
+        capability: z.string().nullable().optional().describe('JSON array string of capabilities.'),
         description: z.string().nullable().optional().describe('Free-text facility description.'),
-        numberDoctors: z.string().nullable().optional().describe('Number of doctors (string or numeric).'),
-        capacity: z.string().nullable().optional().describe('Bed/patient capacity (string or numeric).'),
+        number_doctors: z.string().nullable().optional().describe('numberDoctors field (string, may be "null").'),
+        capacity: z.string().nullable().optional().describe('capacity field (string, may be "null").'),
       }),
       annotations: { effect: 'read' },
-      execute: ({
-        facility_name: _facility_name,
+      execute: async ({
+        facility_name,
+        facility_type_id,
+        operator_type_id,
         specialties,
         procedure,
         equipment,
         capability,
         description,
-        numberDoctors,
+        number_doctors,
         capacity,
-      }): ContextResult => {
+      }) => {
+        const runId = getActiveRunId();
+        if (runId) emitAgentStart(runId, 'context-validator');
+
         const flags: string[] = [];
 
-        // ── Field statuses ────────────────────────────────────────────────
-        const statuses: Record<string, 'present' | 'empty' | 'missing'> = {
-          specialties: fieldStatus(specialties),
-          procedure:   fieldStatus(procedure),
-          equipment:   fieldStatus(equipment),
-          capability:  fieldStatus(capability),
-          description: fieldStatus(description),
-          numberDoctors: fieldStatus(numberDoctors),
-          capacity:    fieldStatus(capacity),
-        };
+        // ── Helpers ───────────────────────────────────────────────────────────
+        function parseArray(val: string | null | undefined): string[] {
+          if (!val || val === 'null' || val.trim() === '') return [];
+          try {
+            const parsed = JSON.parse(val);
+            if (Array.isArray(parsed)) return parsed.filter((x) => typeof x === 'string' && x.trim() !== '');
+          } catch {
+            // Not JSON — try comma-split
+            return val.split(',').map((s) => s.trim()).filter((s) => s !== '');
+          }
+          return [];
+        }
 
-        // ── Completeness (0–10) ───────────────────────────────────────────
-        let completeness = 0;
-        if (statuses.specialties   === 'present') completeness += 2;
-        if (statuses.procedure     === 'present') completeness += 2;
-        if (statuses.equipment     === 'present') completeness += 1;
-        if (statuses.capability    === 'present') completeness += 1;
-        if (statuses.description   === 'present') completeness += 2;
-        if (statuses.numberDoctors === 'present') completeness += 1;
-        if (statuses.capacity      === 'present') completeness += 1;
+        function parseNum(val: string | null | undefined): number | null {
+          if (!val || val === 'null' || val.trim() === '') return null;
+          const n = parseFloat(val.replace(/[^0-9.]/g, ''));
+          return isNaN(n) ? null : n;
+        }
 
-        // ── Consistency (0–10) ────────────────────────────────────────────
-        let consistency = 0;
+        function isPopulated(arr: string[]): boolean {
+          return arr.length > 0;
+        }
 
-        const specArr  = parseArray(specialties);
-        const procArr  = parseArray(procedure);
+        // ── Parse fields ──────────────────────────────────────────────────────
+        const specArr = parseArray(specialties);
+        const procArr = parseArray(procedure);
         const equipArr = parseArray(equipment);
+        const capArr = parseArray(capability);
+        const desc = (description && description !== 'null' && description.trim() !== '') ? description.trim() : null;
+        const descLen = desc ? desc.length : 0;
+        const doctorsNum = parseNum(number_doctors);
+        const capacityNum = parseNum(capacity);
 
-        // Specialties ∩ procedure overlap
-        if (specArr.length > 0 && procArr.length > 0) {
-          const specLower = specArr.map(s => s.toLowerCase());
-          const procLower = procArr.map(s => s.toLowerCase());
-          const overlap = specLower.some(s =>
-            procLower.some(p => p.includes(s) || s.includes(p))
-          );
-          if (overlap) {
-            consistency += 2;
+        // ── Sub-score 1: Operational field coverage (0–4) ────────────────────
+        const operationalCoverageScore =
+          (isPopulated(specArr) ? 1 : 0) +
+          (isPopulated(procArr) ? 1 : 0) +
+          (isPopulated(equipArr) ? 1 : 0) +
+          (isPopulated(capArr) ? 1 : 0);
+
+        if (operationalCoverageScore === 0) {
+          flags.push('No operational array fields populated — no verifiable clinical profile.');
+        }
+
+        // ── Sub-score 2: Description–name corroboration (0–4) ────────────────
+        // Anchor word: first word of name, skip titles/honorifics and ≤4-char words
+        const SKIP_TITLES = new Set(['dr.', 'dr', 'the', 'sri', 'shri', 'shree', 'smt.', 'smt', 'late']);
+        const nameWords = facility_name.split(/\s+/);
+        let anchorWord = '';
+        for (const w of nameWords) {
+          const lower = w.toLowerCase().replace(/[^a-z]/g, '');
+          if (!SKIP_TITLES.has(w.toLowerCase()) && lower.length > 4) {
+            anchorWord = lower;
+            break;
+          }
+        }
+
+        let descriptionNameScore: number;
+        if (!desc) {
+          descriptionNameScore = 0;
+        } else if (anchorWord.length === 0 || anchorWord.length <= 4) {
+          descriptionNameScore = 1; // description present but unverifiable by name
+        } else if (!desc.toLowerCase().includes(anchorWord)) {
+          descriptionNameScore = 1; // description does not reference facility by name
+          if (descLen > 50) {
+            flags.push('Description is substantive but does not reference the facility by name — possible boilerplate.');
+          }
+        } else if (descLen < 50) {
+          descriptionNameScore = 2; // name confirmed but too thin
+        } else if (descLen < 200) {
+          descriptionNameScore = 3;
+        } else {
+          descriptionNameScore = 4;
+        }
+
+        // ── Sub-score 3: Specialty–description consistency (0–4) ─────────────
+        // 15-keyword vocabulary (substrings — covers camelCase and natural language)
+        const SPECIALTY_KEYWORDS = [
+          'cardiology', 'oncology', 'orthopedic', 'orthopaedic',
+          'neurology', 'neurosurgery', 'ophthalmology',
+          'gynecology', 'gynaecology', 'pediatric', 'paediatric',
+          'urology', 'gastroenterology', 'dermatology', 'psychiatry',
+          'radiology', 'pathology', 'pulmonology', 'nephrology',
+        ];
+
+        let specialtyConsistencyScore: number;
+        if (!isPopulated(specArr) || !desc || descLen < 50) {
+          specialtyConsistencyScore = 0; // not enough data
+        } else {
+          const descLower = desc.toLowerCase();
+          const specLower = specArr.join(' ').toLowerCase();
+          const descKwHits = SPECIALTY_KEYWORDS.filter((kw) => descLower.includes(kw)).length;
+          const specKwHits = SPECIALTY_KEYWORDS.filter((kw) => specLower.includes(kw)).length;
+
+          if (descKwHits > 0 && specKwHits < descKwHits) {
+            specialtyConsistencyScore = 1; // contradiction
+            flags.push('Description names a specialty not present in the specialties array — possible inconsistency.');
+          } else if (descKwHits === 0) {
+            specialtyConsistencyScore = 2; // neutral — description covers other aspects
           } else {
-            flags.push('Specialties and procedures share no overlapping terms.');
+            specialtyConsistencyScore = 3; // positive corroboration
           }
-        } else if (specArr.length > 0 || procArr.length > 0) {
-          flags.push('Only one of specialties/procedure is populated; overlap cannot be assessed.');
         }
 
-        // Equipment plausible for specialties
-        if (equipArr.length > 0 && specArr.length > 0) {
-          // Heuristic: equipment terms should not be completely disjoint from specialty domain
-          const medicalEquipTerms = ['mri', 'ct', 'xray', 'x-ray', 'ultrasound', 'ecg', 'eeg',
-            'ventilator', 'dialysis', 'endoscope', 'laparoscope', 'defibrillator', 'monitor',
-            'infusion', 'incubator', 'mammogram', 'pet', 'scan', 'surgical', 'laser'];
-          const equipLower = equipArr.map(e => e.toLowerCase()).join(' ');
-          const hasMedical = medicalEquipTerms.some(t => equipLower.includes(t));
-          if (hasMedical) {
-            consistency += 2;
+        // ── Sub-score 4: Numeric field presence (0–4) ────────────────────────
+        const doctorsPresent = doctorsNum !== null && doctorsNum > 0;
+        const capacityPresent = capacityNum !== null && capacityNum > 0;
+        const numericPresenceScore = (doctorsPresent ? 2 : 0) + (capacityPresent ? 2 : 0);
+
+        if (number_doctors === 'null' || capacity === 'null') {
+          flags.push('numberDoctors or capacity stored as literal "null" string — ingestion pipeline issue, not a facility data failure.');
+        }
+
+        // ── Sub-score 5: Doctor-to-capacity ratio (0–2) ──────────────────────
+        let ratioScore: number;
+        if (!doctorsPresent || !capacityPresent) {
+          ratioScore = 0; // not enough data — no penalty
+        } else if (doctorsNum! > capacityNum!) {
+          ratioScore = 0;
+          flags.push(`Impossible ratio: numberDoctors (${doctorsNum}) > capacity (${capacityNum}) — likely sourced from mismatched pages.`);
+        } else {
+          ratioScore = 2;
+        }
+
+        // ── Sub-score 6: Classification validity (0–6) ───────────────────────
+        const VALID_FACILITY_TYPES = new Set(['hospital', 'clinic', 'dentist', 'pharmacy', 'nursing_home']);
+        const VALID_OPERATOR_TYPES = new Set(['private', 'public']);
+
+        // 6a: facilityTypeId-aware numeric bounds (0–2)
+        const TYPE_BOUNDS: Record<string, { capacity: number; doctors: number }> = {
+          hospital: { capacity: 800, doctors: 200 },
+          clinic:   { capacity: 234, doctors: 46 },
+          dentist:  { capacity: 28,  doctors: 18 },
+        };
+        let boundsScore = 0;
+        if (facility_type_id && TYPE_BOUNDS[facility_type_id] && doctorsPresent && capacityPresent) {
+          const bounds = TYPE_BOUNDS[facility_type_id];
+          if (capacityNum! <= bounds.capacity && doctorsNum! <= bounds.doctors) {
+            boundsScore = 2;
           } else {
-            consistency += 1; // equipment present but generic
-            flags.push('Equipment terms do not match recognisable medical equipment vocabulary.');
-          }
-        } else if (statuses.equipment === 'present') {
-          consistency += 1;
-        }
-
-        // Description mentions ≥ 1 specialty term
-        if (description && specArr.length > 0) {
-          const descLower = description.toLowerCase();
-          const mentioned = specArr.some(s => descLower.includes(s.toLowerCase().slice(0, 6)));
-          if (mentioned) {
-            consistency += 2;
-          } else {
-            flags.push('Description does not reference any listed specialties.');
-          }
-        } else if (description && description.length >= 20) {
-          consistency += 1; // description present but no specialties to cross-check
-        }
-
-        // numberDoctors plausible range
-        if (numberDoctors) {
-          const n = parseInt(String(numberDoctors).replace(/[^0-9]/g, ''), 10);
-          if (!isNaN(n) && n >= 1 && n <= 5000) {
-            consistency += 2;
-          } else if (!isNaN(n)) {
-            flags.push(`numberDoctors value ${n} is outside plausible range (1–5000).`);
+            flags.push(`Numeric values exceed p95 bounds for ${facility_type_id}: capacity=${capacityNum} (max ${bounds.capacity}), doctors=${doctorsNum} (max ${bounds.doctors}).`);
           }
         }
 
-        // Capacity plausible range
-        if (capacity) {
-          const c = parseInt(String(capacity).replace(/[^0-9]/g, ''), 10);
-          if (!isNaN(c) && c >= 5 && c <= 10000) {
-            consistency += 2;
-          } else if (!isNaN(c)) {
-            flags.push(`Capacity value ${c} is outside plausible range (5–10000).`);
-          }
+        // 6b: facilityTypeId vocabulary compliance (0–2)
+        let facilityTypeScore = 0;
+        if (facility_type_id === null || facility_type_id === undefined) {
+          facilityTypeScore = 0;
+        } else if (VALID_FACILITY_TYPES.has(facility_type_id)) {
+          facilityTypeScore = 2;
+        } else {
+          facilityTypeScore = 1;
+          flags.push(`facilityTypeId "${facility_type_id}" is not in the canonical set: hospital, clinic, dentist, pharmacy, nursing_home.`);
         }
 
-        // ── Penalties ─────────────────────────────────────────────────────
-        let penalty = 0;
-
-        // Duplicate specialties
-        if (specArr.length > 0) {
-          const lower = specArr.map(s => s.toLowerCase());
-          const unique = new Set(lower);
-          if (unique.size < lower.length) {
-            penalty += 1;
-            flags.push(`Specialties contains ${lower.length - unique.size} duplicate(s).`);
-          }
+        // 6c: operatorTypeId vocabulary compliance (0–2)
+        let operatorTypeScore = 0;
+        if (operator_type_id === null || operator_type_id === undefined) {
+          operatorTypeScore = 0;
+        } else if (VALID_OPERATOR_TYPES.has(operator_type_id)) {
+          operatorTypeScore = 2;
+        } else if (operator_type_id === 'government') {
+          operatorTypeScore = 1;
+          flags.push('operatorTypeId "government" is a synonym for "public" — flag for normalisation.');
+        } else {
+          operatorTypeScore = 1;
+          flags.push(`operatorTypeId "${operator_type_id}" is not in the canonical set: private, public.`);
         }
 
-        // Empty arrays
-        if (statuses.procedure === 'empty') {
-          penalty += 1;
-          flags.push('Procedure field is an empty array.');
-        }
-        if (statuses.equipment === 'empty') {
-          penalty += 1;
-          flags.push('Equipment field is an empty array.');
-        }
+        const classificationScore = boundsScore + facilityTypeScore + operatorTypeScore;
 
-        // Stub description
-        if (description && description.trim().length > 0 && description.trim().length < 20) {
-          penalty += 1;
-          flags.push('Description is too short (< 20 chars) — likely a stub.');
-        }
+        // ── Total ─────────────────────────────────────────────────────────────
+        const contextScore = Math.min(20,
+          operationalCoverageScore +
+          descriptionNameScore +
+          specialtyConsistencyScore +
+          numericPresenceScore +
+          ratioScore +
+          classificationScore
+        );
 
-        // ── Final score ───────────────────────────────────────────────────
-        const raw = completeness + consistency - penalty;
-        const total = Math.max(0, Math.min(20, raw));
-        const grade: 'high' | 'medium' | 'low' =
-          total >= 14 ? 'high' : total >= 8 ? 'medium' : 'low';
+        const grade =
+          contextScore >= 17 ? 'Strong' :
+          contextScore >= 12 ? 'Good' :
+          contextScore >= 7  ? 'Moderate' :
+          contextScore >= 3  ? 'Weak' : 'Poor';
+
+        // Additional flag triggers from doc
+        if (ratioScore === 0 && numericPresenceScore === 4) {
+          // Already flagged above
+        }
+        if (classificationScore <= 2) {
+          flags.push('Classification validity score ≤ 2 — type-aware bounds fail or classification fields are NULL/out-of-vocabulary.');
+        }
+        if (contextScore <= 2) {
+          flags.push('context_score ≤ 2 — treat as untrustworthy until enriched.');
+        }
 
         if (flags.length === 0) {
           flags.push('No consistency issues detected.');
         }
 
-        const runId = getActiveRunId();
-        if (runId) { emitAgentStart(runId, 'context-validator'); emitAgentDone(runId, 'context-validator'); }
+        if (runId) emitAgentDone(runId, 'context-validator');
         return {
           agent: 'context-validator',
-          completeness_score: completeness,
-          consistency_score: Math.max(0, consistency - penalty),
-          total_score: total,
-          max_score: 20,
+          context_score: contextScore,
           grade,
+          operational_coverage_score: operationalCoverageScore,
+          description_name_score: descriptionNameScore,
+          specialty_consistency_score: specialtyConsistencyScore,
+          numeric_presence_score: numericPresenceScore,
+          ratio_score: ratioScore,
+          classification_score: classificationScore,
+          bounds_score: boundsScore,
+          facility_type_score: facilityTypeScore,
+          operator_type_score: operatorTypeScore,
+          anchor_word: anchorWord || null,
           flags,
-          field_statuses: statuses,
         };
       },
     }),

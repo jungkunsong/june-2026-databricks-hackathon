@@ -55,6 +55,13 @@ export const locationValidatorAgent = createAgent({
   instructions: [
     'You are the Location Validator sub-agent.',
     'Your job is to verify that a facility\'s stored address, pincode, and lat/lon coordinates are consistent with each other.',
+    'This agent produces a location_score (0–20), one of three components of contacts_score = avg(location_score, phone_score, email_score).',
+    '',
+    'Location scoring (contacts-validation.md):',
+    '  Coordinates: MATCH (≤20km from pincode centroid)=+10, CLOSE (21–50km)=+5, MISMATCH/NOT_FOUND=+0',
+    '  State match: +5',
+    '  City match: +5',
+    '  Total capped at 20.',
     '',
     'RECOMMENDED SEQUENCE:',
     '1. Call lookup_pincode with the facility\'s postcode to get the real district, state, and centroid coordinates from the India Post directory.',
@@ -67,7 +74,7 @@ export const locationValidatorAgent = createAgent({
     'If the facility has no address fields at all, return MISSING_DATA.',
     '',
     'Return ONLY a single compact JSON object — no markdown, no tables, no prose:',
-    '{"agent":"location-validator","status":"MATCH|CLOSE|MISMATCH|PINCODE_NOT_FOUND|GEOCODE_MISMATCH|MISSING_DATA","distance_km":<number or null>,"geocode_distance_km":<number or null>,"district":<string or null>,"state":<string or null>,"geocoded_address":<string or null>,"note":"<one sentence or null>"}',
+    '{"agent":"location-validator","location_score":<0-20>,"status":"MATCH|CLOSE|MISMATCH|PINCODE_NOT_FOUND|GEOCODE_MISMATCH|MISSING_DATA","distance_km":<number or null>,"geocode_distance_km":<number or null>,"district":<string or null>,"state":<string or null>,"geocoded_address":<string or null>,"note":"<one sentence or null>"}',
   ].join('\n'),
   tools: {
 
