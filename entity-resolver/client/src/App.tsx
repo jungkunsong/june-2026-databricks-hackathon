@@ -59,9 +59,9 @@ function Layout() {
           )}
           <div className="flex items-center gap-2">
             <Activity className="h-5 w-5 text-[#FF3621]" />
-            <span className="font-semibold tracking-tight">Entity Resolver</span>
+            <span className="font-semibold tracking-tight">Facility Trust OS</span>
             <span className="hidden text-xs text-white/50 sm:inline">
-              Medical Facility Resolution
+              Facility Trust Desk
             </span>
           </div>
           {!isMobile && (
