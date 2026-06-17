@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo } from 'react';
+import { trustScore, trustLabel, trustColor } from './ResolvePage';
 import {
   Loader2,
   CheckCircle2,
@@ -131,12 +132,10 @@ function DecisionRow({ entry }: { entry: DecisionLogEntry }) {
         {/* Trust Score */}
         <td className="hidden px-4 py-3 sm:table-cell">
           {entry.agent_scores && entry.agent_scores.length > 0 ? (() => {
-            const total = entry.agent_scores.reduce((s, a) => s + a.score, 0);
-            const label = total >= 85 ? 'Excellent' : total >= 65 ? 'Good' : total >= 45 ? 'Moderate' : total >= 25 ? 'Weak' : 'Poor';
-            const color = total >= 65 ? 'text-green-700' : total >= 45 ? 'text-amber-600' : total >= 25 ? 'text-orange-600' : 'text-red-600';
+            const total = trustScore(entry.agent_scores);
             return (
-              <span className={`text-xs font-semibold tabular-nums ${color}`}>
-                {total}/100 — {label}
+              <span className={`text-xs font-semibold tabular-nums ${trustColor(total)}`}>
+                {total}/100 — {trustLabel(total)}
               </span>
             );
           })() : (
@@ -323,8 +322,8 @@ export function DecisionsPage() {
     // Sort by trust score
     if (scoreSort !== 'none') {
       result = [...result].sort((a, b) => {
-        const ta = a.agent_scores ? a.agent_scores.reduce((s, x) => s + x.score, 0) : -1;
-        const tb = b.agent_scores ? b.agent_scores.reduce((s, x) => s + x.score, 0) : -1;
+        const ta = trustScore(a.agent_scores);
+        const tb = trustScore(b.agent_scores);
         return scoreSort === 'asc' ? ta - tb : tb - ta;
       });
     }

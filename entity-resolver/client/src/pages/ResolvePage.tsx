@@ -48,6 +48,8 @@ export interface PromotionProposal {
   agents_consulted: string[];
   fields: FieldProposal[];
   agent_scores?: AgentScore[];
+  /** Supervisor-computed sum of sub-scores (0–100). Preferred over re-summing agent_scores. */
+  total_score?: number;
   /** Set by duplicate-detector when a definite/likely duplicate is found. */
   merge_into_row_id?: number | null;
 }
@@ -59,6 +61,27 @@ export interface FieldDecision {
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
+
+/**
+ * Compute the canonical trust score (0–100) for a record.
+ * Prefers `total_score` from the supervisor JSON (already summed correctly).
+ * Falls back to summing agent_scores, clamping each sub-score to [0, 20] and
+ * the total to [0, 100] to guard against LLM hallucinations.
+ */
+export function trustScore(scores: AgentScore[] | null | undefined, total?: number | null): number {
+  if (total != null && total >= 0 && total <= 100) return Math.round(total);
+  if (!scores || scores.length === 0) return 0;
+  const sum = scores.reduce((s, a) => s + Math.min(20, Math.max(0, a.score)), 0);
+  return Math.min(100, Math.round(sum));
+}
+
+export function trustLabel(score: number): string {
+  return score >= 85 ? 'Excellent' : score >= 65 ? 'Good' : score >= 45 ? 'Moderate' : score >= 25 ? 'Weak' : 'Poor';
+}
+
+export function trustColor(score: number): string {
+  return score >= 65 ? 'text-green-700' : score >= 45 ? 'text-amber-600' : score >= 25 ? 'text-orange-600' : 'text-red-600';
+}
 
 /** Parse the last PROMOTION_PROPOSAL: JSON block from the supervisor's message stream. */
 export function parseProposal(messages: { role: string; content: string }[]): PromotionProposal | null {
@@ -75,7 +98,20 @@ export function parseProposal(messages: { role: string; content: string }[]): Pr
       const end = findJsonEnd(jsonStr, 0);
       if (end === -1) continue;
       const parsed = JSON.parse(jsonStr.slice(0, end + 1)) as PromotionProposal;
-      if (parsed.fields && Array.isArray(parsed.fields)) return parsed;
+      if (parsed.fields && Array.isArray(parsed.fields)) {
+        // Clamp each sub-score to [0, 20] to guard against LLM hallucinations
+        if (parsed.agent_scores) {
+          parsed.agent_scores = parsed.agent_scores.map((s) => ({
+            ...s,
+            score: Math.min(20, Math.max(0, Math.round(s.score))),
+          }));
+        }
+        // Clamp total_score to [0, 100]
+        if (parsed.total_score != null) {
+          parsed.total_score = Math.min(100, Math.max(0, Math.round(parsed.total_score)));
+        }
+        return parsed;
+      }
     } catch {
       // malformed — keep looking
     }
@@ -131,16 +167,9 @@ function ScoreBar({ score }: { score: number }) {
 }
 
 export function TrustScorePanel({ scores }: { scores: AgentScore[] }) {
-  // Total = sum of all sub-scores (0–100), matching the supervisor's "Score: X/100"
-  const total = scores.reduce((s, a) => s + a.score, 0);
-  const label =
-    total >= 85 ? 'Excellent' :
-    total >= 65 ? 'Good' :
-    total >= 45 ? 'Moderate' :
-    total >= 25 ? 'Weak' :
-    'Poor';
+  const total = trustScore(scores);
+  const label = trustLabel(total);
   const totalColor =
-    total >= 85 ? 'bg-green-100 text-green-800 border-green-200' :
     total >= 65 ? 'bg-green-100 text-green-800 border-green-200' :
     total >= 45 ? 'bg-amber-100 text-amber-800 border-amber-200' :
     total >= 25 ? 'bg-orange-100 text-orange-800 border-orange-200' :
@@ -279,12 +308,10 @@ export function FieldApprovalTable({
           }`}>{proposal.outcome}</span>
         </span>
         {proposal.agent_scores && proposal.agent_scores.length > 0 ? (() => {
-          const total = proposal.agent_scores.reduce((s, a) => s + a.score, 0);
-          const label = total >= 85 ? 'Excellent' : total >= 65 ? 'Good' : total >= 45 ? 'Moderate' : total >= 25 ? 'Weak' : 'Poor';
-          const color = total >= 65 ? 'text-green-700' : total >= 45 ? 'text-amber-600' : total >= 25 ? 'text-orange-600' : 'text-red-600';
+          const total = trustScore(proposal.agent_scores, proposal.total_score);
           return (
-            <span className={`text-xs font-semibold tabular-nums ${color}`}>
-              {total}/100 — {label}
+            <span className={`text-xs font-semibold tabular-nums ${trustColor(total)}`}>
+              {total}/100 — {trustLabel(total)}
             </span>
           );
         })() : (
